@@ -7,10 +7,11 @@ use serde::{
     Serialize, Serializer,
 };
 
-use super::EncodingError;
+use super::{ENetError, EncodingError};
 
 pub(crate) struct EnetSerializer<B: BufMut> {
     pub output: B,
+    pub size: usize,
 }
 
 impl<'a, B: BufMut> Serializer for &'a mut EnetSerializer<B> {
@@ -34,56 +35,67 @@ impl<'a, B: BufMut> Serializer for &'a mut EnetSerializer<B> {
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         self.output.put_u8(if v { 1 } else { 0 });
+        self.size += 1;
         Ok(())
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
         self.output.put_i8(v);
+        self.size += 1;
         Ok(())
     }
 
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
         self.output.put_i16(v);
+        self.size += 2;
         Ok(())
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
         self.output.put_i32(v);
+        self.size += 4;
         Ok(())
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
         self.output.put_i64(v);
+        self.size += 8;
         Ok(())
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
         self.output.put_u8(v);
+        self.size += 1;
         Ok(())
     }
 
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
         self.output.put_u16(v);
+        self.size += 2;
         Ok(())
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
         self.output.put_u32(v);
+        self.size += 4;
         Ok(())
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
         self.output.put_u64(v);
+        self.size += 8;
         Ok(())
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
         self.output.put_f32(v);
+        self.size += 4;
         Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
         self.output.put_f64(v);
+        self.size += 8;
         Ok(())
     }
 
@@ -96,6 +108,7 @@ impl<'a, B: BufMut> Serializer for &'a mut EnetSerializer<B> {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        self.size += v.len();
         self.output.put_slice(v);
         Ok(())
     }
@@ -155,7 +168,9 @@ impl<'a, B: BufMut> Serializer for &'a mut EnetSerializer<B> {
         value.serialize(&mut *self)
     }
 
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        let len: u16 = len.unwrap_or(usize::MAX).try_into()?;
+        len.serialize(&mut *self)?;
         Ok(self)
     }
 

@@ -1,10 +1,21 @@
+use std::time::Duration;
+
 use bytes::{Buf, BytesMut};
-use enet::{deserializer::EnetDeserializer, protocol::ConnectPacket, Result};
+use enet::{
+    deserializer::EnetDeserializer,
+    host::{Host, HostConfig},
+    protocol::ConnectCommand,
+    Result,
+};
 use serde::{Deserialize, Serialize};
 use tokio::{io::BufWriter, net::UdpSocket};
 
 use crate::enet::{
-    protocol::{PacketHeader, ProtocolCommandHeader, VerifyConnectPacket},
+    host::HostEvent,
+    protocol::{
+        Command, CommandHeader, CommandInfo, PacketFlags, ProtocolCommand, ProtocolCommandHeader,
+        VerifyConnectCommand,
+    },
     serializer::EnetSerializer,
     sizer::EnetSizer,
 };
@@ -13,65 +24,56 @@ mod enet;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let mut buf = BytesMut::with_capacity(100);
-    let mut buf = [0; 100];
-    let socket = UdpSocket::bind("0.0.0.0:1027").await?;
+    let config = HostConfig::new(10)?;
+    let mut host = Host::create(config, "0.0.0.0:1027").await?;
 
-    // let socket = BufWriter::new(socket);
-    println!("Buff: {:?}", buf.len());
-    let (len, addr) = socket.recv_from(&mut buf[..]).await?;
-    println!("{len:?}- {addr:?} - {buf:?}");
-    let mut deser = EnetDeserializer { input: &buf[..] };
+    let packet = host.poll().await?;
+    println!("first: {packet:#?}");
+    let packet = host.poll().await?;
+    println!("second: {packet:#?}");
+    let packet = host.poll().await?;
+    println!("third: {packet:#?}");
 
-    let header = PacketHeader::deserialize(&mut deser)?;
-    let packet_type = ProtocolCommandHeader::deserialize(&mut deser)?;
-    let packet = ConnectPacket::deserialize(&mut deser)?;
-    println!("Header: {header:x?}");
-    println!("Type: {packet_type:x?}");
-    println!("Packet: {packet:#x?}");
-    let connect_id = packet.connect_id;
+    // let mut buf = [0; 100];
+    // println!("Packet: {packet:#x?}");
+    // let connect_id = match packet.command {
+    //     enet::protocol::ProtocolCommand::Connect(p) => p.connect_id,
+    //     _ => panic!("connect not first"),
+    // };
 
-    let header = PacketHeader {
-        peer_id: 0x8000,
-        sent_time: 0x17e0,
-    };
+    // let info = CommandInfo {
+    //     addr: packet.metadata.addr,
+    //     flags: PacketFlags::reliable(),
+    //     peer_id: 0x8000_u16.into(),
+    //     channel_id: 0xff,
+    //     reliable_sequence_number: 0x1,
+    //     sent_time: Duration::from_millis(0x17e0),
+    // };
 
-    let packet_type = ProtocolCommandHeader {
-        command: 0x83,
-        channel_id: 0xff,
-        reliable_sequence_number: 0x01,
-    };
+    // let packet = VerifyConnectCommand {
+    //     outgoing_peer_id: 0x0000,
+    //     incoming_session_id: 0x00,
+    //     outgoing_session_id: 0x00,
+    //     mtu: 0x578,
+    //     window_size: 0x1000,
+    //     channel_count: 0x2,
+    //     incoming_bandwidth: 0x0,
+    //     outgoing_bandwidth: 0x0,
+    //     packet_throttle_interval: 0x1388,
+    //     packet_throttle_acceleration: 0x02,
+    //     packet_throttle_deceleration: 0x02,
+    //     connect_id,
+    // };
 
-    let packet = VerifyConnectPacket {
-        outgoing_peer_id: 0x0000,
-        incoming_session_id: 0x00,
-        outgoing_session_id: 0x00,
-        mtu: 0x578,
-        window_size: 0x1000,
-        channel_count: 0x2,
-        incoming_bandwidth: 0x0,
-        outgoing_bandwidth: 0x0,
-        packet_throttle_interval: 0x1388,
-        packet_throttle_acceleration: 0x02,
-        packet_throttle_deceleration: 0x02,
-        connect_id,
-    };
-    let mut sizer = EnetSizer { size: 0 };
-    header.serialize(&mut sizer)?;
-    packet_type.serialize(&mut sizer)?;
-    packet.serialize(&mut sizer)?;
+    // host.send(Command {
+    //     command: packet.into(),
+    //     metadata: info,
+    // })
+    // .await?;
 
-    let packet_size = sizer.size;
+    loop {
+        let command = host.poll().await?;
 
-    let mut ser = EnetSerializer {
-        output: &mut buf[..],
-    };
-
-    header.serialize(&mut ser)?;
-    packet_type.serialize(&mut ser)?;
-    packet.serialize(&mut ser)?;
-
-    socket.send_to(&buf[..packet_size], addr).await?;
-
-    Ok(())
+        println!("Got packet: {command:#x?}");
+    }
 }

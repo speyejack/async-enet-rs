@@ -1,5 +1,5 @@
 use bytes::{Buf, BufMut, Bytes};
-use serde::Deserializer;
+use serde::{de::Visitor, Deserializer};
 
 use super::EncodingError;
 
@@ -167,11 +167,20 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
         visitor.visit_newtype_struct(self)
     }
 
-    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        unimplemented!()
+        let len: usize = self.input.get_u16().into();
+        if self.input.remaining() < len {
+            return Err(EncodingError::NotEnoughData(self.input.remaining(), len));
+        }
+
+        println!("Len: 0x{:#?} rem: 0x{:#?}", len, self.input.remaining());
+        visitor.visit_seq(Access {
+            deserializer: self,
+            len: len.into(),
+        })
     }
 
     // fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
