@@ -1,7 +1,10 @@
 use std::{collections::HashSet, fmt::Display, net::SocketAddr};
 
+use tokio::sync::mpsc::Sender;
+
 use super::{
     channel::{Channel, ChannelID},
+    host::hostevents::{HostRecvEvent, HostSendEvent},
     protocol::{Command, PacketFlags},
     ChannelError, ENetError,
 };
@@ -64,14 +67,18 @@ pub struct PeerInfo {
     pub(crate) window_size: u32,
 
     pub(crate) event_data: u32,
+
+    pub(crate) outgoing_reliable_sequence_number: u16,
+    pub(crate) incoming_reliable_sequence_number: u16,
+    pub(crate) sender: Sender<HostSendEvent>,
 }
 
 #[derive(Debug)]
 pub struct Peer {
-    id: PeerID,
+    pub(crate) id: PeerID,
 
-    out_channel: tokio::sync::mpsc::Sender<(PeerSendEvent, PeerID, ChannelID)>,
-    in_channel: tokio::sync::mpsc::Receiver<PeerEvent>,
+    pub(crate) out_channel: tokio::sync::mpsc::Sender<HostRecvEvent>,
+    pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
 }
 
 impl Peer {
@@ -81,13 +88,18 @@ impl Peer {
         channel: ChannelID,
     ) -> std::result::Result<(), ChannelError> {
         self.out_channel
-            .send((PeerSendEvent::Send(p), self.id, channel))
+            .send(HostRecvEvent {
+                event: PeerSendEvent::Send(p),
+                peer_id: self.id,
+                channel_id: channel,
+            })
             .await?;
         Ok(())
     }
 
-    async fn poll(&mut self) -> Option<PeerEvent> {
-        self.in_channel.recv().await
+    async fn poll(&mut self) -> Option<PeerRecvEvent> {
+        let event = self.in_channel.recv().await;
+        event.map(|x| x.event)
     }
 }
 
@@ -106,7 +118,7 @@ pub enum PeerSendEvent {
 }
 
 #[derive(Debug)]
-pub enum PeerEvent {
+pub enum PeerRecvEvent {
     Recv(Packet),
     Disconnect,
 }

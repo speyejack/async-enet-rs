@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, Bytes};
 use serde::{de::Visitor, Deserializer};
 
-use super::EncodingError;
+use crate::enet::EncodingError;
 
 pub(crate) struct EnetDeserializer<B: Buf> {
     pub input: B,

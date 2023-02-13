@@ -6,7 +6,7 @@ use super::{peer::PeerID, ENetError};
 
 #[derive(Debug, Clone)]
 pub struct Command {
-    pub metadata: CommandInfo,
+    pub info: CommandInfo,
     pub command: ProtocolCommand,
 }
 
@@ -41,7 +41,7 @@ impl PacketFlags {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CommandHeader {
+pub struct ProtocolHeader {
     pub peer_id: u16,   // peer id from outgoing peer id | HEADER FLAGS
     pub sent_time: u16, // first 16 bits of current time (ms) (dont be zero)
 }

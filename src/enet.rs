@@ -1,10 +1,8 @@
 pub mod channel;
-pub mod deserializer;
 pub mod host;
+pub mod net;
 pub mod peer;
 pub mod protocol;
-pub mod serializer;
-pub mod sizer;
 
 use serde::{de::Error as DeError, ser::Error as SerError};
 use std::num::TryFromIntError;
@@ -14,6 +12,7 @@ use thiserror::*;
 
 use self::{
     channel::ChannelID,
+    host::hostevents::{HostRecvEvent, HostSendEvent},
     peer::{PeerID, PeerSendEvent},
 };
 
@@ -21,8 +20,11 @@ pub type Result<T> = std::result::Result<T, ENetError>;
 
 #[derive(Error, Debug)]
 pub enum ChannelError {
-    #[error("Channel send error")]
-    PeerSendError(#[from] tokio::sync::mpsc::error::SendError<(PeerSendEvent, PeerID, ChannelID)>),
+    #[error("Client send error")]
+    PeerSendError(#[from] tokio::sync::mpsc::error::SendError<HostRecvEvent>),
+
+    #[error("Host send error")]
+    HostSendError(#[from] tokio::sync::mpsc::error::SendError<HostSendEvent>),
 
     #[error("Channel close")]
     PeerClosed,
@@ -51,8 +53,17 @@ pub enum ENetError {
     #[error("Invalid channel id: {0}")]
     InvalidChannelId(ChannelID),
 
+    #[error("Channel error: {0}")]
+    ChannelError(Box<ChannelError>),
+
     #[error("Other error: {0}")]
     Other(String),
+}
+
+impl From<ChannelError> for ENetError {
+    fn from(value: ChannelError) -> Self {
+        Self::ChannelError(Box::new(value))
+    }
 }
 
 #[derive(Error, Debug)]

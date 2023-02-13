@@ -7,7 +7,7 @@ use serde::{
     Serialize, Serializer,
 };
 
-use super::EncodingError;
+use crate::enet::EncodingError;
 
 pub(crate) struct EnetSizer {
     pub size: usize,

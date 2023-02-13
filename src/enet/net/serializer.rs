@@ -7,7 +7,7 @@ use serde::{
     Serialize, Serializer,
 };
 
-use super::{ENetError, EncodingError};
+use crate::enet::{ENetError, EncodingError};
 
 pub(crate) struct EnetSerializer<B: BufMut> {
     pub output: B,

@@ -1,3 +1,6 @@
+pub mod config;
+pub mod hostevents;
+
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -12,43 +15,28 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use super::{
-    channel::{Channel, ChannelID},
-    deserializer::EnetDeserializer,
-    peer::{Packet, Peer, PeerEvent, PeerID, PeerInfo, PeerSendEvent},
-    protocol::{
-        AcknowledgeCommand, BandwidthLimitCommand, Command, CommandHeader, CommandInfo,
-        ConnectCommand, DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand,
-        ProtocolCommandHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
-        SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
-    },
-    serializer::EnetSerializer,
-    ENetError, Result,
+use self::{
+    config::HostConfig,
+    hostevents::{HostPollEvent, HostRecvEvent, HostSendEvent},
 };
 
-pub struct HostConfig {
-    pub peer_count: usize,
-    pub channel_limit: Option<usize>,
-    pub incoming_bandwidth: Option<u32>,
-    pub outgoing_bandwidth: Option<u32>,
-}
-
-impl HostConfig {
-    pub fn new(peer_count: usize) -> Result<Self> {
-        Ok(HostConfig {
-            peer_count,
-            channel_limit: None,
-            incoming_bandwidth: None,
-            outgoing_bandwidth: None,
-        })
-    }
-}
+use super::{
+    channel::{Channel, ChannelID},
+    net::socket::ENetSocket,
+    peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent, PeerSendEvent},
+    protocol::{
+        AcknowledgeCommand, BandwidthLimitCommand, Command, CommandInfo, ConnectCommand,
+        DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, ProtocolCommandHeader,
+        ProtocolHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
+        SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
+    },
+    ChannelError, ENetError, Result,
+};
 
 pub struct Host {
-    pub socket: UdpSocket,
+    pub socket: ENetSocket,
     pub peers: HashMap<PeerID, PeerInfo>,
     pub config: HostConfig,
-    pub start_time: Instant,
 
     // bandwidth_throttle_epoch: u32,
     // mtu: u32,
@@ -57,14 +45,10 @@ pub struct Host {
     pub next_peer: u16,
     pub unack_packets: HashMap<u16, Command>,
 
-    pub receiver: Receiver<(PeerSendEvent, PeerID, ChannelID)>,
-    pub sender: Sender<(PeerSendEvent, PeerID, ChannelID)>,
-}
+    pub receiver: Receiver<HostRecvEvent>,
 
-#[derive(Debug)]
-pub enum HostEvent {
-    Event(PeerEvent),
-    NewConnection(Peer),
+    // Used for peer creation
+    pub from_cli_tx: Sender<HostRecvEvent>,
 }
 
 impl Host {
@@ -77,17 +61,16 @@ impl Host {
 
         let peers = Default::default();
         // TODO Set default peers ... maybe
-        let (sender, receiver) = tokio::sync::mpsc::channel(100);
+        let (from_cli_tx, from_cli_rx) = tokio::sync::mpsc::channel(100);
 
         Ok(Host {
-            socket,
+            socket: ENetSocket::new(socket),
             peers,
             config,
             random,
-            sender,
-            receiver,
+            from_cli_tx,
+            receiver: from_cli_rx,
             next_peer: 0,
-            start_time: Instant::now(),
             unack_packets: Default::default(),
         })
     }
@@ -95,8 +78,8 @@ impl Host {
     pub fn handle_connect(
         &mut self,
         addr: SocketAddr,
-        connect: ConnectCommand,
-    ) -> Result<(PeerID, VerifyConnectCommand)> {
+        connect: &ConnectCommand,
+    ) -> Result<(Peer, VerifyConnectCommand)> {
         // TODO Check channel count to consts
         // TODO Check MTU to consts
 
@@ -110,7 +93,14 @@ impl Host {
         let peer_id = PeerID(self.next_peer);
         self.next_peer += 1;
 
-        let mut peer = self.peers.entry(peer_id).or_insert(PeerInfo {
+        let (to_cli_tx, to_cli_rx) = tokio::sync::mpsc::channel(100);
+        let peer = Peer {
+            id: peer_id,
+            out_channel: self.from_cli_tx.clone(),
+            in_channel: to_cli_rx,
+        };
+
+        let mut peer_info = self.peers.entry(peer_id).or_insert(PeerInfo {
             outgoing_peer_id: connect.outgoing_peer_id.into(),
             incoming_peer_id: self.next_peer.into(),
             connect_id: connect.connect_id,
@@ -124,34 +114,37 @@ impl Host {
             packet_throttle_acceleration: connect.packet_throttle_acceleration,
             packet_throttle_deceleration: connect.packet_throttle_deceleration,
             event_data: connect.data,
+            sender: to_cli_tx,
+            incoming_reliable_sequence_number: 0,
+            outgoing_reliable_sequence_number: 0,
             window_size,
             mtu,
         });
 
         // Handle incoming session id
         let mut incoming_session_id = if connect.incoming_session_id == 0xFF {
-            peer.outgoing_peer_id
+            peer_info.outgoing_peer_id
         } else {
             connect.incoming_session_id.into()
         };
-        if incoming_session_id == peer.outgoing_peer_id {
+        if incoming_session_id == peer_info.outgoing_peer_id {
             incoming_session_id = ((incoming_session_id.0 + 1) & 3).into();
         }
-        peer.outgoing_session_id = incoming_session_id.into();
+        peer_info.outgoing_session_id = incoming_session_id.into();
 
         // Handle outgoing session id
         let mut outgoing_session_id = if connect.outgoing_session_id == 0xFF {
-            peer.incoming_peer_id
+            peer_info.incoming_peer_id
         } else {
             connect.outgoing_session_id.into()
         };
-        if outgoing_session_id == peer.incoming_peer_id {
+        if outgoing_session_id == peer_info.incoming_peer_id {
             outgoing_session_id = ((outgoing_session_id.0 + 1) & 3).into();
         }
-        peer.incoming_session_id = outgoing_session_id.into();
+        peer_info.incoming_session_id = outgoing_session_id.into();
 
         let verify = VerifyConnectCommand {
-            outgoing_peer_id: peer.incoming_peer_id.into(),
+            outgoing_peer_id: peer_info.incoming_peer_id.into(),
             incoming_session_id: incoming_session_id.try_into()?,
             outgoing_session_id: outgoing_session_id.try_into()?,
             mtu,
@@ -159,13 +152,13 @@ impl Host {
             channel_count: channel_count.try_into()?,
             incoming_bandwidth: self.config.incoming_bandwidth.unwrap_or(0),
             outgoing_bandwidth: self.config.outgoing_bandwidth.unwrap_or(0),
-            packet_throttle_interval: peer.packet_throttle_interval,
-            packet_throttle_acceleration: peer.packet_throttle_acceleration,
-            packet_throttle_deceleration: peer.packet_throttle_deceleration,
-            connect_id: peer.connect_id,
+            packet_throttle_interval: peer_info.packet_throttle_interval,
+            packet_throttle_acceleration: peer_info.packet_throttle_acceleration,
+            packet_throttle_deceleration: peer_info.packet_throttle_deceleration,
+            connect_id: peer_info.connect_id,
         };
 
-        Ok((peer_id, verify))
+        Ok((peer, verify))
     }
 
     pub async fn connect(
@@ -182,174 +175,164 @@ impl Host {
         // self.peers.insert(peer, new_peer);
     }
 
-    pub async fn poll(&mut self) -> Result<Option<HostEvent>> {
+    pub async fn poll_until_event(&mut self) -> Result<HostPollEvent> {
+        loop {
+            let event = self.poll().await?;
+            match event {
+                HostPollEvent::NoEvent => {}
+                event => return Ok(event),
+            }
+        }
+    }
+
+    pub async fn poll(&mut self) -> Result<HostPollEvent> {
         // Receive messages and pass them off
         // Send messages
         // Resend any messages that havent been resent again
 
         self.resend_missing_packets().await?;
-        let data = self.retrieve_data().await?;
-        let ret = match data {
-            RetrievedData::SocketIncoming((addr, buffer)) => {
-                let data = self.recv(buffer, addr).await?;
-                data.map(|x| HostEvent::Event())
+        select! {
+            incoming_command = self.socket.recv() => {
+                self.handle_incoming_command(&incoming_command?).await
             }
-            RetrievedData::PeerOutgoing(p) => {
-                // TODO Handle peer disconnect
-                if let Some(p) = p {
-                    self.send_event(p.0, p.1, p.2).await?;
+            outgoing_event = self.receiver.recv() => {
+                match outgoing_event {
+                    None => todo!("Impl Peer close"),
+                    Some(event) => self.handle_outgoing_command(event).await
                 }
-                Ok(None)
+
             }
-            RetrievedData::TimeOut => Ok(None),
-        };
-
-        ret
+            sleep = tokio::time::sleep(Duration::from_secs(1)) => {
+                Ok(HostPollEvent::NoEvent)
+            }
+        }
     }
 
-    pub fn cleanup_peer(&mut self) {
-        todo!("Make a cleanup method")
+    async fn handle_outgoing_command(&mut self, event: HostRecvEvent) -> Result<HostPollEvent> {
+        let command = event.to_command(self)?;
+        self.send(command).await?;
+        Ok(HostPollEvent::NoEvent)
     }
 
-    async fn retrieve_data(&mut self) -> Result<RetrievedData> {
-        let mut buf = [0; 100];
-        let ret = select! {
-           val = self.socket.recv_from(&mut buf) => {
-               let (_, addr) = val?;
-               Ok(RetrievedData::SocketIncoming((addr, buf)))
-           }
-           send_msg = self.receiver.recv() => {
-               Ok(RetrievedData::PeerOutgoing(send_msg))
-           }
-           // sleep = tokio::time::sleep(Duration::from_secs(1)) => {
-           //     Ok(RetrievedData::TimeOut)
-           // }
-        };
-        ret
-    }
+    async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
+        if command.info.flags.reliable {
+            self.send_ack_packet(command).await?;
+        }
 
-    pub async fn recv(&mut self, buff: [u8; 100], addr: SocketAddr) -> Result<Option<HostEvent>> {
-        let p = self.recv_packet(buff, addr).await?;
-        match p.command {
+        match &command.command {
             ProtocolCommand::Connect(c) => {
-                self.handle_connect(p.metadata.addr, c)?;
-                Ok(None)
+                let (peer, verify_command) = self.handle_connect(command.info.addr, c)?;
+                let verify_command = Command {
+                    command: verify_command.into(),
+                    info: self.new_command_info(peer.id, 0xFF, PacketFlags::reliable())?,
+                };
+                self.send(verify_command).await?;
+                return Ok(HostPollEvent::Connect(peer));
             }
-            // ProtocolCommand::VerifyConnect(_) => todo!(),
-            ProtocolCommand::Disconnect(_) => Ok(Some((PeerEvent::Disconnect, p.metadata))),
-            // ProtocolCommand::Ping(_) => todo!(),
-            ProtocolCommand::SendReliable(r) => Ok(Some((
-                PeerEvent::Recv(Packet {
-                    data: r.data,
-                    channel: p.metadata.channel_id.into(),
-                    flags: p.metadata.flags.clone(),
-                }),
-                p.metadata,
-            ))),
-            ProtocolCommand::SendUnreliable(r) => Ok(Some((
-                PeerEvent::Recv(Packet {
-                    data: r.data,
-                    channel: p.metadata.channel_id.into(),
-                    flags: p.metadata.flags.clone(),
-                }),
-                p.metadata,
-            ))),
-            // ProtocolCommand::SendFragment(_) => todo!(),
-            // ProtocolCommand::SendUnsequenced(_) => todo!(),
-            // ProtocolCommand::BandwidthLimit(_) => todo!(),
-            // ProtocolCommand::ThrottleConfigure(_) => todo!(),
-            // ProtocolCommand::SendUnreliableFragment(_) => todo!(),
-            // ProtocolCommand::Count => todo!(),
-            _ => Ok(None),
+            ProtocolCommand::VerifyConnect(_) => todo!(),
+            ProtocolCommand::Disconnect(_) => {
+                return Ok(HostPollEvent::Disconnect(command.info.peer_id))
+            }
+            ProtocolCommand::SendReliable(r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendUnreliable(r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::Ack(r) => {
+                self.unack_packets
+                    .remove(&r.received_reliable_sequence_number);
+            }
+
+            _ => {}
         }
+        Ok(HostPollEvent::NoEvent)
     }
 
-    pub(crate) async fn recv_packet(
-        &mut self,
-        buff: [u8; 100],
-        addr: SocketAddr,
-    ) -> Result<Command> {
-        let (packet, info) = self.process_packet(&buff, addr)?;
+    async fn forward_to_peer(&mut self, command: &Command) -> Result<()> {
+        let peer = self
+            .peers
+            .get(&command.info.peer_id)
+            .ok_or(ENetError::InvalidPeerId(command.info.peer_id))?;
 
-        if info.flags.reliable {
-            let command = AcknowledgeCommand {
-                received_reliable_sequence_number: info.reliable_sequence_number,
-                received_sent_time: info.sent_time.as_millis() as u16,
-            }
-            .into();
-
-            let info = CommandInfo {
-                addr,
-                flags: Default::default(),
-                peer_id: info.peer_id,
-                channel_id: info.channel_id,
-                reliable_sequence_number: info.reliable_sequence_number,
-                sent_time: self.start_time.elapsed(),
-            };
-
-            self.send(Command {
-                command,
-                metadata: info,
-            })
-            .await?;
-        }
-
-        Ok(Command {
-            command: packet,
-            metadata: info,
-        })
-    }
-
-    pub(crate) fn process_packet(
-        &mut self,
-        buf: &[u8],
-        addr: SocketAddr,
-    ) -> Result<(ProtocolCommand, CommandInfo)> {
-        let mut deser = EnetDeserializer { input: buf };
-
-        let header = CommandHeader::deserialize(&mut deser)?;
-        let packet_type = ProtocolCommandHeader::deserialize(&mut deser)?;
-
-        let packet: ProtocolCommand = match &packet_type.command & 0x0F {
-            0 => ProtocolCommand::None,
-            1 => AcknowledgeCommand::deserialize(&mut deser)?.into(),
-            2 => ConnectCommand::deserialize(&mut deser)?.into(),
-            3 => VerifyConnectCommand::deserialize(&mut deser)?.into(),
-            4 => DisconnectCommand::deserialize(&mut deser)?.into(),
-            5 => PingCommand::deserialize(&mut deser)?.into(),
-            6 => SendReliableCommand::deserialize(&mut deser)?.into(),
-            7 => SendUnreliableCommand::deserialize(&mut deser)?.into(),
-            8 => SendFragmentCommand::deserialize(&mut deser)?.into(),
-            9 => SendUnsequencedCommand::deserialize(&mut deser)?.into(),
-            10 => BandwidthLimitCommand::deserialize(&mut deser)?.into(),
-            11 => ThrottleConfigureCommand::deserialize(&mut deser)?.into(),
-            12 => ProtocolCommand::SendUnreliableFragment(SendFragmentCommand::deserialize(
-                &mut deser,
-            )?),
-            13 => ProtocolCommand::Count,
-            _ => return Err(ENetError::Other("Invalid packet header".to_string())),
+        let data = match &command.command {
+            ProtocolCommand::SendReliable(r) => r.data.clone(),
+            ProtocolCommand::SendUnreliable(r) => r.data.clone(),
+            _ => unreachable!("Invalid packet type forwarded to peer"),
         };
 
-        let flags = PacketFlags {
-            reliable: ((&packet_type.command >> 7) & 1) == 1,
-            unsequenced: ((&packet_type.command >> 6) & 1) == 1,
+        let packet = Packet {
+            data,
+            channel: command.info.channel_id.into(),
+            flags: command.info.flags.clone(),
+        };
 
-            // TODO impl these flags
-            no_allocate: false,
-            unreliable_fragment: false,
-            sent: false,
+        let output = peer
+            .sender
+            .send(HostSendEvent {
+                event: PeerRecvEvent::Recv(packet),
+                channel_id: command.info.channel_id.into(),
+            })
+            .await;
+
+        let output: std::result::Result<_, ChannelError> = output.map_err(|x| x.into());
+        output?;
+        Ok(())
+    }
+
+    fn new_command_info(
+        &mut self,
+        peer_id: PeerID,
+        channel_id: ChannelID,
+        flags: PacketFlags,
+    ) -> Result<CommandInfo> {
+        let peer = self
+            .peers
+            .get_mut(&peer_id)
+            .ok_or(ENetError::InvalidPeerId(peer_id))?;
+
+        let channel = peer
+            .channels
+            .get_mut((channel_id as usize))
+            .ok_or(ENetError::InvalidChannelId(channel_id))?;
+
+        let channel_id = channel_id.try_into()?;
+        let reliable_sequence_number = if channel_id == 0xFF {
+            let num = peer.outgoing_reliable_sequence_number;
+            peer.outgoing_reliable_sequence_number += 1;
+            num
+        } else {
+            let num = channel.outgoing_reliable_sequence_number;
+            channel.outgoing_reliable_sequence_number += 1;
+            num
         };
 
         let info = CommandInfo {
-            addr,
+            addr: peer.address,
             flags,
-            peer_id: header.peer_id.into(),
-            channel_id: packet_type.channel_id,
-            reliable_sequence_number: packet_type.reliable_sequence_number,
-            sent_time: Duration::from_millis(header.sent_time.into()),
+            peer_id: peer.outgoing_peer_id,
+            channel_id,
+            reliable_sequence_number,
+            sent_time: self.config.start_time.elapsed(),
         };
+        Ok(info)
+    }
 
-        Ok((packet, info))
+    async fn send_ack_packet(&mut self, command: &Command) -> Result<()> {
+        let ack_command = AcknowledgeCommand {
+            received_reliable_sequence_number: command.info.reliable_sequence_number,
+            received_sent_time: command.info.sent_time.as_millis() as u16,
+        }
+        .into();
+
+        let ack_info = self.new_command_info(
+            command.info.peer_id,
+            command.info.channel_id.into(),
+            Default::default(),
+        )?;
+
+        self.socket
+            .send(&Command {
+                command: ack_command,
+                info: ack_info,
+            })
+            .await
     }
 
     async fn resend_missing_packets(&mut self) -> Result<()> {
@@ -357,12 +340,15 @@ impl Host {
         let resend_packets: Vec<_> = self
             .unack_packets
             .iter()
-            .filter(|x| self.start_time.elapsed() - x.1.metadata.sent_time > Duration::from_secs(1))
+            .filter(|x| {
+                self.config.start_time.elapsed() - x.1.info.sent_time > Duration::from_secs(1)
+            })
             .map(|x| x.1.clone())
             .collect();
 
-        for p in resend_packets {
-            self.send_command(&p).await?;
+        for mut p in resend_packets {
+            p.info.sent_time = self.config.start_time.elapsed();
+            self.socket.send(&p).await?;
         }
         Ok(())
     }
@@ -375,182 +361,23 @@ impl Host {
         Ok(outgoing_peer)
     }
 
-    fn create_packet_header(&self, local_peer_id: PeerID) -> Result<CommandHeader> {
-        let outgoing_peer = self
-            .peers
-            .get(&local_peer_id)
-            .ok_or(ENetError::InvalidPeerId(local_peer_id))?;
-        let outgoing_peer_id = outgoing_peer.outgoing_peer_id;
-        let time = self.start_time.elapsed();
-
-        Ok(CommandHeader {
-            peer_id: outgoing_peer_id.into(),
-            sent_time: time.as_millis() as u16,
-        })
-    }
-
-    pub(crate) async fn send_event(
-        &mut self,
-        event: PeerSendEvent,
-        peer_id: PeerID,
-        channel_id: ChannelID,
-    ) -> Result<()> {
-        let command = self.create_command(event, peer_id, channel_id)?;
-        self.send(command).await?;
-
-        Ok(())
-    }
-
-    pub(crate) fn create_command(
-        &self,
-        event: PeerSendEvent,
-        peer_id: PeerID,
-        channel_id: ChannelID,
-    ) -> Result<Command> {
-        let peer = self.get_peer(peer_id)?;
-
-        let channel: &Channel = peer
-            .channels
-            .get::<usize>(channel_id.into())
-            .ok_or(ENetError::InvalidChannelId(channel_id))?;
-
-        let (command, flags) = match event {
-            PeerSendEvent::Send(p) if p.flags.reliable => (
-                ProtocolCommand::SendReliable(SendReliableCommand {
-                    // data_length: p.data.len().try_into()?,
-                    data: p.data,
-                }),
-                p.flags,
-            ),
-            PeerSendEvent::Send(p) => (
-                ProtocolCommand::SendUnreliable(SendUnreliableCommand {
-                    unreliable_sequence_number: channel.outgoing_unreliable_sequence_number,
-                    // data_length: p.data.len().try_into()?,
-                    data: p.data,
-                }),
-                p.flags,
-            ),
-            PeerSendEvent::Ping => (
-                ProtocolCommand::Ping(PingCommand {}),
-                PacketFlags::reliable(),
-            ),
-            PeerSendEvent::Disconnect => (
-                ProtocolCommand::Disconnect(DisconnectCommand { data: 0 }),
-                PacketFlags::reliable(),
-            ),
-        };
-
-        let info = CommandInfo {
-            addr: peer.address,
-            flags,
-            peer_id: peer.outgoing_peer_id,
-            channel_id: channel_id.try_into()?,
-            reliable_sequence_number: channel.outgoing_reliable_sequence_number,
-            sent_time: self.start_time.elapsed(),
-        };
-
-        Ok(Command {
-            command,
-            metadata: info,
-        })
-    }
-
-    pub async fn broadcast(&mut self, event: PeerSendEvent, channel: ChannelID) -> Result<()> {
+    pub async fn broadcast(&mut self, event: HostRecvEvent) -> Result<()> {
         let peers: Vec<_> = self.peers.keys().map(Clone::clone).collect();
         for peer in peers {
             let event = event.clone();
-            self.send_event(event, peer, channel).await?;
+            self.handle_outgoing_command(event).await?;
         }
         Ok(())
     }
 
     pub(crate) async fn send(&mut self, command: Command) -> Result<()> {
-        self.send_command(&command).await?;
+        self.socket.send(&command).await?;
 
-        if command.metadata.flags.reliable {
+        if command.info.flags.reliable {
             self.unack_packets
-                .insert(command.metadata.reliable_sequence_number, command);
+                .insert(command.info.reliable_sequence_number, command);
         }
 
         Ok(())
     }
-
-    pub(crate) async fn send_command(&mut self, command: &Command) -> Result<()> {
-        let addr = command.metadata.addr;
-        let (bytes, size) = self.construct_packet(&command)?;
-
-        println!("Sending packet: {size} => {bytes:?}");
-        self.socket.send_to(&bytes[0..size], addr).await?;
-        Ok(())
-    }
-
-    pub(crate) fn construct_packet(&mut self, mut p: &Command) -> Result<(Bytes, usize)> {
-        let mut buff = BytesMut::zeroed(100);
-        let mut ser = EnetSerializer {
-            output: &mut buff[..],
-            size: 0,
-        };
-
-        let command = match p.command {
-            ProtocolCommand::None => 0,
-            ProtocolCommand::Ack(_) => 1,
-            ProtocolCommand::Connect(_) => 2,
-            ProtocolCommand::VerifyConnect(_) => 3,
-            ProtocolCommand::Disconnect(_) => 4,
-            ProtocolCommand::Ping(_) => 5,
-            ProtocolCommand::SendReliable(_) => 6,
-            ProtocolCommand::SendUnreliable(_) => 7,
-            ProtocolCommand::SendFragment(_) => 8,
-            ProtocolCommand::SendUnsequenced(_) => 9,
-            ProtocolCommand::BandwidthLimit(_) => 10,
-            ProtocolCommand::ThrottleConfigure(_) => 11,
-            ProtocolCommand::SendUnreliableFragment(_) => 12,
-            ProtocolCommand::Count => 13,
-        };
-
-        let flags = &p.metadata.flags;
-        let command_flags =
-            if flags.reliable { 1 << 7 } else { 0 } | if flags.unsequenced { 1 << 6 } else { 0 };
-
-        let command = command | command_flags;
-
-        let command_header = ProtocolCommandHeader {
-            command,
-            channel_id: p.metadata.channel_id,
-            reliable_sequence_number: p.metadata.reliable_sequence_number,
-        };
-
-        let packet_header = CommandHeader {
-            peer_id: p.metadata.peer_id.into(),
-            sent_time: p.metadata.sent_time.as_millis() as u16,
-        };
-
-        packet_header.serialize(&mut ser)?;
-        command_header.serialize(&mut ser)?;
-
-        let val = match &p.command {
-            ProtocolCommand::Ack(l) => l.serialize(&mut ser),
-            ProtocolCommand::Connect(l) => l.serialize(&mut ser),
-            ProtocolCommand::VerifyConnect(l) => l.serialize(&mut ser),
-            ProtocolCommand::Disconnect(l) => l.serialize(&mut ser),
-            ProtocolCommand::Ping(l) => l.serialize(&mut ser),
-            ProtocolCommand::SendReliable(l) => l.serialize(&mut ser),
-            ProtocolCommand::SendUnreliable(l) => l.serialize(&mut ser),
-            ProtocolCommand::SendFragment(l) => l.serialize(&mut ser),
-            ProtocolCommand::SendUnsequenced(l) => l.serialize(&mut ser),
-            ProtocolCommand::BandwidthLimit(l) => l.serialize(&mut ser),
-            ProtocolCommand::ThrottleConfigure(l) => l.serialize(&mut ser),
-            ProtocolCommand::SendUnreliableFragment(l) => l.serialize(&mut ser),
-            ProtocolCommand::Count => Ok(()),
-            _ => Ok(()),
-        }?;
-        let size = ser.size;
-        Ok((buff.freeze(), size))
-    }
-}
-
-enum RetrievedData {
-    SocketIncoming((SocketAddr, [u8; 100])),
-    PeerOutgoing(Option<(PeerSendEvent, PeerID, ChannelID)>),
-    TimeOut,
 }
