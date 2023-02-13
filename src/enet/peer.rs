@@ -1,11 +1,11 @@
-use std::{collections::HashSet, fmt::Display, net::SocketAddr};
+use std::{fmt::Display, net::SocketAddr};
 
 use tokio::sync::mpsc::Sender;
 
 use super::{
     channel::{Channel, ChannelID},
     host::hostevents::{HostRecvEvent, HostSendEvent},
-    protocol::{Command, PacketFlags},
+    protocol::PacketFlags,
     ChannelError, ENetError,
 };
 
@@ -82,7 +82,7 @@ pub struct Peer {
 }
 
 impl Peer {
-    async fn send(
+    pub async fn send(
         &mut self,
         p: Packet,
         channel: ChannelID,
@@ -97,7 +97,7 @@ impl Peer {
         Ok(())
     }
 
-    async fn poll(&mut self) -> Option<PeerRecvEvent> {
+    pub async fn poll(&mut self) -> Option<PeerRecvEvent> {
         let event = self.in_channel.recv().await;
         event.map(|x| x.event)
     }

@@ -1,16 +1,10 @@
 pub mod config;
 pub mod hostevents;
 
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
-use bytes::{Bytes, BytesMut};
-use serde::{Deserialize, Serialize};
 use tokio::{
-    net::{ToSocketAddrs, UdpSocket},
+    net::ToSocketAddrs,
     select,
     sync::mpsc::{Receiver, Sender},
 };
@@ -21,14 +15,12 @@ use self::{
 };
 
 use super::{
-    channel::{Channel, ChannelID},
+    channel::ChannelID,
     net::socket::ENetSocket,
-    peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent, PeerSendEvent},
+    peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
-        AcknowledgeCommand, BandwidthLimitCommand, Command, CommandInfo, ConnectCommand,
-        DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, ProtocolCommandHeader,
-        ProtocolHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
-        SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
+        AcknowledgeCommand, Command, CommandInfo, ConnectCommand, PacketFlags, ProtocolCommand,
+        VerifyConnectCommand,
     },
     ChannelError, ENetError, Result,
 };
@@ -163,9 +155,9 @@ impl Host {
 
     pub async fn connect(
         &mut self,
-        addr: SocketAddr,
-        channel_count: usize,
-        data: u32,
+        _addr: SocketAddr,
+        _channel_count: usize,
+        _data: u32,
     ) -> Result<PeerID> {
         // TODO check channel count
         todo!();
@@ -202,7 +194,7 @@ impl Host {
                 }
 
             }
-            sleep = tokio::time::sleep(Duration::from_secs(1)) => {
+            _sleep = tokio::time::sleep(Duration::from_secs(1)) => {
                 Ok(HostPollEvent::NoEvent)
             }
         }
@@ -233,8 +225,8 @@ impl Host {
             ProtocolCommand::Disconnect(_) => {
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id))
             }
-            ProtocolCommand::SendReliable(r) => self.forward_to_peer(command).await?,
-            ProtocolCommand::SendUnreliable(r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::Ack(r) => {
                 self.unack_packets
                     .remove(&r.received_reliable_sequence_number);
@@ -289,7 +281,7 @@ impl Host {
 
         let channel = peer
             .channels
-            .get_mut((channel_id as usize))
+            .get_mut(channel_id as usize)
             .ok_or(ENetError::InvalidChannelId(channel_id))?;
 
         let channel_id = channel_id.try_into()?;
@@ -353,17 +345,9 @@ impl Host {
         Ok(())
     }
 
-    fn get_peer(&self, peer_id: PeerID) -> Result<&PeerInfo> {
-        let outgoing_peer = self
-            .peers
-            .get(&peer_id)
-            .ok_or(ENetError::InvalidPeerId(peer_id))?;
-        Ok(outgoing_peer)
-    }
-
     pub async fn broadcast(&mut self, event: HostRecvEvent) -> Result<()> {
         let peers: Vec<_> = self.peers.keys().map(Clone::clone).collect();
-        for peer in peers {
+        for _peer in peers {
             let event = event.clone();
             self.handle_outgoing_command(event).await?;
         }

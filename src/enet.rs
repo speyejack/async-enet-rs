@@ -13,7 +13,7 @@ use thiserror::*;
 use self::{
     channel::ChannelID,
     host::hostevents::{HostRecvEvent, HostSendEvent},
-    peer::{PeerID, PeerSendEvent},
+    peer::{PeerID},
 };
 
 pub type Result<T> = std::result::Result<T, ENetError>;

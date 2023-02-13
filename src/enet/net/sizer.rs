@@ -1,4 +1,4 @@
-use bytes::{BufMut, BytesMut};
+
 use serde::{
     ser::{
         SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
@@ -32,62 +32,62 @@ impl<'a> Serializer for &'a mut EnetSizer {
 
     type SerializeStructVariant = Self;
 
-    fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
+    fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
         self.size += 2;
         Ok(())
     }
 
-    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
         self.size += 2;
         Ok(())
     }
 
-    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+    fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
         self.size += 1;
         Ok(())
     }

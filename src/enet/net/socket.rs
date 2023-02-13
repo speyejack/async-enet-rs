@@ -30,7 +30,7 @@ impl ENetSocket {
     }
 
     pub async fn recv(&mut self) -> Result<Command> {
-        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
+        let (_len, addr) = self.socket.recv_from(&mut self.buf).await?;
         self.deserialize_command(addr)
     }
 
@@ -95,7 +95,7 @@ impl ENetSocket {
         Ok(())
     }
 
-    fn serialize_command(&self, mut p: &Command) -> Result<(Bytes, usize)> {
+    fn serialize_command(&self, p: &Command) -> Result<(Bytes, usize)> {
         let mut buff = BytesMut::zeroed(100);
         let mut ser = EnetSerializer {
             output: &mut buff[..],
@@ -139,7 +139,7 @@ impl ENetSocket {
         packet_header.serialize(&mut ser)?;
         command_header.serialize(&mut ser)?;
 
-        let val = match &p.command {
+        let _val = match &p.command {
             ProtocolCommand::Ack(l) => l.serialize(&mut ser),
             ProtocolCommand::Connect(l) => l.serialize(&mut ser),
             ProtocolCommand::VerifyConnect(l) => l.serialize(&mut ser),

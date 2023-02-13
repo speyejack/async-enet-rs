@@ -1,5 +1,5 @@
-use bytes::{Buf, BufMut, Bytes};
-use serde::{de::Visitor, Deserializer};
+use bytes::Buf;
+use serde::Deserializer;
 
 use crate::enet::EncodingError;
 
@@ -278,7 +278,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>

@@ -1,4 +1,4 @@
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut};
 use serde::{
     ser::{
         SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
@@ -7,7 +7,7 @@ use serde::{
     Serialize, Serializer,
 };
 
-use crate::enet::{ENetError, EncodingError};
+use crate::enet::{EncodingError};
 
 pub(crate) struct EnetSerializer<B: BufMut> {
     pub output: B,
