@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::enet::Result;
 
@@ -8,6 +8,8 @@ pub struct HostConfig {
     pub incoming_bandwidth: Option<u32>,
     pub outgoing_bandwidth: Option<u32>,
     pub start_time: Instant,
+    pub retry_count: usize,
+    pub packet_timeout: Duration,
 }
 
 impl HostConfig {
@@ -18,6 +20,8 @@ impl HostConfig {
             incoming_bandwidth: None,
             outgoing_bandwidth: None,
             start_time: Instant::now(),
+            packet_timeout: Duration::from_secs(1),
+            retry_count: 5,
         })
     }
 }

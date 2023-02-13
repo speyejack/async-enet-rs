@@ -374,18 +374,17 @@ impl Host {
     }
 
     async fn resend_missing_packets(&mut self) -> Result<Option<PeerID>> {
-        let resend_packets = self
-            .unack_packets
-            .iter_mut()
-            .filter(|x| self.config.start_time.elapsed() - x.1.last_sent > Duration::from_secs(1));
+        let resend_packets = self.unack_packets.iter_mut().filter(|x| {
+            self.config.start_time.elapsed() - x.1.last_sent > self.config.packet_timeout
+        });
 
         for (_k, p) in resend_packets {
-            dbg!(p.retries);
-            if p.retries > 3 {
+            if p.retries >= self.config.retry_count {
                 return Ok(Some(p.command.info.peer_id));
             }
             self.socket.send(&p.command).await?;
             p.retries += 1;
+            p.last_sent = self.config.start_time.elapsed();
         }
         Ok(None)
     }
