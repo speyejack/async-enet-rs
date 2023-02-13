@@ -108,7 +108,7 @@ impl Host {
             event_data: connect.data,
             sender: to_cli_tx,
             incoming_reliable_sequence_number: 0,
-            outgoing_reliable_sequence_number: 0,
+            outgoing_reliable_sequence_number: 1,
             window_size,
             mtu,
         });
@@ -207,10 +207,6 @@ impl Host {
     }
 
     async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
-        if command.info.flags.reliable {
-            self.send_ack_packet(command).await?;
-        }
-
         match &command.command {
             ProtocolCommand::Connect(c) => {
                 let (peer, verify_command) = self.handle_connect(command.info.addr, c)?;
@@ -225,19 +221,34 @@ impl Host {
             ProtocolCommand::Disconnect(_) => {
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id))
             }
-            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
-            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendReliable(_r) => {
+                if command.info.flags.reliable {
+                    self.send_ack_packet(command).await?;
+                }
+                self.forward_to_peer(command).await?
+            }
+            ProtocolCommand::SendUnreliable(_r) => {
+                if command.info.flags.reliable {
+                    self.send_ack_packet(command).await?;
+                }
+                self.forward_to_peer(command).await?
+            }
             ProtocolCommand::Ack(r) => {
                 self.unack_packets
                     .remove(&r.received_reliable_sequence_number);
             }
 
-            _ => {}
+            _ => {
+                if command.info.flags.reliable {
+                    self.send_ack_packet(command).await?;
+                }
+            }
         }
         Ok(HostPollEvent::NoEvent)
     }
 
     async fn forward_to_peer(&mut self, command: &Command) -> Result<()> {
+        tracing::trace!("Forwarding to speer");
         let peer = self
             .peers
             .get(&command.info.peer_id)
@@ -274,26 +285,28 @@ impl Host {
         channel_id: ChannelID,
         flags: PacketFlags,
     ) -> Result<CommandInfo> {
+        tracing::trace!("Constructing new command info");
         let peer = self
             .peers
             .get_mut(&peer_id)
             .ok_or(ENetError::InvalidPeerId(peer_id))?;
 
-        let channel = peer
-            .channels
-            .get_mut(channel_id as usize)
-            .ok_or(ENetError::InvalidChannelId(channel_id))?;
-
-        let channel_id = channel_id.try_into()?;
         let reliable_sequence_number = if channel_id == 0xFF {
             let num = peer.outgoing_reliable_sequence_number;
             peer.outgoing_reliable_sequence_number += 1;
             num
         } else {
+            let channel = peer
+                .channels
+                .get_mut(channel_id as usize)
+                .ok_or(ENetError::InvalidChannelId(channel_id))
+                .unwrap();
+
             let num = channel.outgoing_reliable_sequence_number;
             channel.outgoing_reliable_sequence_number += 1;
             num
         };
+        let channel_id = channel_id.try_into()?;
 
         let info = CommandInfo {
             addr: peer.address,
@@ -302,6 +315,7 @@ impl Host {
             channel_id,
             reliable_sequence_number,
             sent_time: self.config.start_time.elapsed(),
+            session_id: 0,
         };
         Ok(info)
     }
@@ -313,11 +327,21 @@ impl Host {
         }
         .into();
 
-        let ack_info = self.new_command_info(
-            command.info.peer_id,
-            command.info.channel_id.into(),
-            Default::default(),
-        )?;
+        // let ack_info = self.new_command_info(
+        //     command.info.peer_id,
+        //     command.info.channel_id.into(),
+        //     Default::default(),
+        // )?;
+
+        let ack_info = CommandInfo {
+            addr: command.info.addr,
+            flags: PacketFlags::default(),
+            peer_id: command.info.peer_id,
+            channel_id: command.info.channel_id,
+            reliable_sequence_number: 0,
+            sent_time: self.config.start_time.elapsed(),
+            session_id: 0,
+        };
 
         self.socket
             .send(&Command {

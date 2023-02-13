@@ -38,7 +38,21 @@ impl ENetSocket {
         let buf = &self.buf[..];
         let mut deser = EnetDeserializer { input: buf };
 
-        let header = ProtocolHeader::deserialize(&mut deser)?;
+        // let header = ProtocolHeader::deserialize(&mut deser)?;
+        let peer_id = u16::deserialize(&mut deser)?;
+
+        let is_compressed = (peer_id >> 14) > 0;
+        let send_time = (peer_id >> 15) > 0;
+        let session_id = (peer_id >> 12) & 3;
+
+        let sent_time = if send_time {
+            u16::deserialize(&mut deser)?
+        } else {
+            0
+        };
+
+        let header = ProtocolHeader { peer_id, sent_time };
+
         let packet_type = ProtocolCommandHeader::deserialize(&mut deser)?;
 
         let packet: ProtocolCommand = match &packet_type.command & 0x0F {
@@ -69,6 +83,8 @@ impl ENetSocket {
             no_allocate: false,
             unreliable_fragment: false,
             sent: false,
+            is_compressed,
+            send_time,
         };
 
         let info = CommandInfo {
@@ -78,6 +94,7 @@ impl ENetSocket {
             channel_id: packet_type.channel_id,
             reliable_sequence_number: packet_type.reliable_sequence_number,
             sent_time: Duration::from_millis(header.sent_time.into()),
+            session_id,
         };
 
         Ok(Command {
@@ -88,10 +105,11 @@ impl ENetSocket {
 
     pub async fn send(&mut self, command: &Command) -> Result<()> {
         let addr = command.info.addr;
-        let (bytes, size) = self.serialize_command(&command)?;
+        let (bytes, size) = self.serialize_command(command)?;
 
-        println!("Sending packet: {size} => {bytes:?}");
-        self.socket.send_to(&bytes[0..size], addr).await?;
+        let bytes = &bytes[0..size];
+        tracing::trace!("Sending packet: {size} => {bytes:x?}");
+        self.socket.send_to(bytes, addr).await?;
         Ok(())
     }
 
@@ -120,8 +138,17 @@ impl ENetSocket {
         };
 
         let flags = &p.info.flags;
+        let id_flags: u16 = p.info.session_id;
+        let id_flags = id_flags << 12
+            | if flags.send_time { 1 << 15 } else { 0 }
+            | if flags.is_compressed { 1 << 14 } else { 0 };
+
+        let peer_id: u16 = p.info.peer_id.into();
+        let peer_id = peer_id | id_flags;
+
         let command_flags =
             if flags.reliable { 1 << 7 } else { 0 } | if flags.unsequenced { 1 << 6 } else { 0 };
+        tracing::trace!("Adding command flags: {command_flags:x}");
 
         let command = command | command_flags;
 
@@ -132,7 +159,7 @@ impl ENetSocket {
         };
 
         let packet_header = ProtocolHeader {
-            peer_id: p.info.peer_id.into(),
+            peer_id,
             sent_time: p.info.sent_time.as_millis() as u16,
         };
 

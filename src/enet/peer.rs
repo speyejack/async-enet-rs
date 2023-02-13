@@ -97,9 +97,12 @@ impl Peer {
         Ok(())
     }
 
-    pub async fn poll(&mut self) -> Option<PeerRecvEvent> {
+    pub async fn poll(&mut self) -> PeerRecvEvent {
         let event = self.in_channel.recv().await;
-        event.map(|x| x.event)
+        match event {
+            None => PeerRecvEvent::Disconnect,
+            Some(e) => e.event,
+        }
     }
 }
 

@@ -16,11 +16,12 @@ pub struct CommandInfo {
     pub flags: PacketFlags,
     pub peer_id: PeerID,
     pub channel_id: u8,
+    pub session_id: u16,
     pub reliable_sequence_number: u16,
     pub sent_time: Duration,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct PacketFlags {
     pub reliable: bool,
     pub unsequenced: bool,
@@ -28,6 +29,23 @@ pub struct PacketFlags {
     pub no_allocate: bool,
     pub unreliable_fragment: bool,
     pub sent: bool,
+
+    pub send_time: bool,
+    pub is_compressed: bool,
+}
+
+impl Default for PacketFlags {
+    fn default() -> Self {
+        Self {
+            reliable: Default::default(),
+            unsequenced: Default::default(),
+            no_allocate: Default::default(),
+            unreliable_fragment: Default::default(),
+            sent: Default::default(),
+            send_time: true,
+            is_compressed: Default::default(),
+        }
+    }
 }
 
 impl PacketFlags {

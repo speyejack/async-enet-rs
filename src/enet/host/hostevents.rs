@@ -1,11 +1,9 @@
-
-
 use crate::enet::{
     channel::ChannelID,
     peer::{Peer, PeerID, PeerRecvEvent, PeerSendEvent},
     protocol::{
-        Command, DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand,
-        SendReliableCommand, SendUnreliableCommand,
+        Command, DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, SendReliableCommand,
+        SendUnreliableCommand,
     },
     ENetError, Result,
 };
@@ -34,6 +32,7 @@ pub struct HostRecvEvent {
 
 impl HostRecvEvent {
     pub fn to_command(&self, host: &mut Host) -> Result<Command> {
+        tracing::trace!("Converting event to command");
         let peer = host
             .peers
             .get_mut(&self.peer_id)
