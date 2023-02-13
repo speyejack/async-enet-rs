@@ -208,6 +208,14 @@ impl Host {
 
     async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
         match &command.command {
+            ProtocolCommand::Connect(_) => {}
+            _ if command.info.flags.reliable => {
+                self.send_ack_packet(command).await?;
+            }
+            _ => {}
+        }
+
+        match &command.command {
             ProtocolCommand::Connect(c) => {
                 let (peer, verify_command) = self.handle_connect(command.info.addr, c)?;
                 let verify_command = Command {
@@ -221,28 +229,14 @@ impl Host {
             ProtocolCommand::Disconnect(_) => {
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id))
             }
-            ProtocolCommand::SendReliable(_r) => {
-                if command.info.flags.reliable {
-                    self.send_ack_packet(command).await?;
-                }
-                self.forward_to_peer(command).await?
-            }
-            ProtocolCommand::SendUnreliable(_r) => {
-                if command.info.flags.reliable {
-                    self.send_ack_packet(command).await?;
-                }
-                self.forward_to_peer(command).await?
-            }
+            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::Ack(r) => {
                 self.unack_packets
                     .remove(&r.received_reliable_sequence_number);
             }
 
-            _ => {
-                if command.info.flags.reliable {
-                    self.send_ack_packet(command).await?;
-                }
-            }
+            _ => {}
         }
         Ok(HostPollEvent::NoEvent)
     }
@@ -327,21 +321,11 @@ impl Host {
         }
         .into();
 
-        // let ack_info = self.new_command_info(
-        //     command.info.peer_id,
-        //     command.info.channel_id.into(),
-        //     Default::default(),
-        // )?;
-
-        let ack_info = CommandInfo {
-            addr: command.info.addr,
-            flags: PacketFlags::default(),
-            peer_id: command.info.peer_id,
-            channel_id: command.info.channel_id,
-            reliable_sequence_number: 0,
-            sent_time: self.config.start_time.elapsed(),
-            session_id: 0,
-        };
+        let ack_info = self.new_command_info(
+            command.info.peer_id,
+            command.info.channel_id.into(),
+            Default::default(),
+        )?;
 
         self.socket
             .send(&Command {
