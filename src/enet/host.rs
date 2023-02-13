@@ -35,12 +35,30 @@ pub struct Host {
     pub random: random::Default,
 
     pub next_peer: u16,
-    pub unack_packets: HashMap<u16, Command>,
+    unack_packets: HashMap<u16, UnAckPacket>,
 
     pub receiver: Receiver<HostRecvEvent>,
 
     // Used for peer creation
     pub from_cli_tx: Sender<HostRecvEvent>,
+}
+
+struct UnAckPacket {
+    command: Command,
+    last_sent: Duration,
+    retries: usize,
+    peer_id: PeerID,
+}
+
+impl UnAckPacket {
+    pub fn new(command: Command) -> Self {
+        Self {
+            last_sent: command.info.sent_time,
+            peer_id: command.info.peer_id,
+            retries: 0,
+            command,
+        }
+    }
 }
 
 impl Host {
@@ -182,7 +200,11 @@ impl Host {
         // Send messages
         // Resend any messages that havent been resent again
 
-        self.resend_missing_packets().await?;
+        let timed_out = self.resend_missing_packets().await?;
+
+        if let Some(id) = timed_out {
+            self.disconnect_peer(id).await;
+        }
         select! {
             incoming_command = self.socket.recv() => {
                 self.handle_incoming_command(&incoming_command?).await
@@ -198,6 +220,22 @@ impl Host {
                 Ok(HostPollEvent::NoEvent)
             }
         }
+    }
+
+    async fn disconnect_peer(&mut self, id: PeerID) -> Option<PeerInfo> {
+        self.unack_packets.retain(|_k, v| v.peer_id != id);
+        let peer = self.peers.remove(&id);
+        if let Some(peer) = peer {
+            let _result = peer
+                .sender
+                .send(HostSendEvent {
+                    event: PeerRecvEvent::Disconnect,
+                    channel_id: 0xFF,
+                })
+                .await;
+            return Some(peer);
+        }
+        None
     }
 
     async fn handle_outgoing_command(&mut self, event: HostRecvEvent) -> Result<HostPollEvent> {
@@ -335,22 +373,21 @@ impl Host {
             .await
     }
 
-    async fn resend_missing_packets(&mut self) -> Result<()> {
-        // TODO Remove this clone
-        let resend_packets: Vec<_> = self
+    async fn resend_missing_packets(&mut self) -> Result<Option<PeerID>> {
+        let resend_packets = self
             .unack_packets
-            .iter()
-            .filter(|x| {
-                self.config.start_time.elapsed() - x.1.info.sent_time > Duration::from_secs(1)
-            })
-            .map(|x| x.1.clone())
-            .collect();
+            .iter_mut()
+            .filter(|x| self.config.start_time.elapsed() - x.1.last_sent > Duration::from_secs(1));
 
-        for mut p in resend_packets {
-            p.info.sent_time = self.config.start_time.elapsed();
-            self.socket.send(&p).await?;
+        for (_k, p) in resend_packets {
+            dbg!(p.retries);
+            if p.retries > 3 {
+                return Ok(Some(p.command.info.peer_id));
+            }
+            self.socket.send(&p.command).await?;
+            p.retries += 1;
         }
-        Ok(())
+        Ok(None)
     }
 
     pub async fn broadcast(&mut self, event: HostRecvEvent) -> Result<()> {
@@ -366,8 +403,10 @@ impl Host {
         self.socket.send(&command).await?;
 
         if command.info.flags.reliable {
-            self.unack_packets
-                .insert(command.info.reliable_sequence_number, command);
+            self.unack_packets.insert(
+                command.info.reliable_sequence_number,
+                UnAckPacket::new(command),
+            );
         }
 
         Ok(())
