@@ -15,7 +15,7 @@ use self::{
 };
 
 use super::{
-    channel::ChannelID,
+    channel::{Channel, ChannelID},
     net::socket::ENetSocket,
     peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
@@ -110,6 +110,11 @@ impl Host {
             in_channel: to_cli_rx,
         };
 
+        // Create all channels ahead of time
+        let channels = (0..channel_count as u16)
+            .map(|x| (x, Channel::default()))
+            .collect();
+
         let mut peer_info = self.peers.entry(peer_id).or_insert(PeerInfo {
             outgoing_peer_id: connect.outgoing_peer_id.into(),
             incoming_peer_id: peer_id,
@@ -117,7 +122,7 @@ impl Host {
             outgoing_session_id: 0xFF,
             incoming_session_id: 0xFF,
             address: addr,
-            channels: Default::default(),
+            channels,
             incoming_bandwidth: connect.incoming_bandwidth,
             outgoing_bandwidth: connect.outgoing_bandwidth,
             packet_throttle_interval: connect.packet_throttle_interval,
@@ -152,6 +157,9 @@ impl Host {
             outgoing_session_id = ((outgoing_session_id.0 + 1) & 3).into();
         }
         peer_info.incoming_session_id = outgoing_session_id.into();
+
+        let incoming_session_id = 0;
+        let outgoing_session_id = 0;
 
         let verify = VerifyConnectCommand {
             outgoing_peer_id: peer_info.incoming_peer_id.into(),
@@ -328,10 +336,7 @@ impl Host {
             peer.outgoing_reliable_sequence_number += 1;
             num
         } else {
-            let channel = peer
-                .channels
-                .get_mut(channel_id as usize)
-                .ok_or(ENetError::InvalidChannelId(channel_id));
+            let channel = peer.get_mut_channel(channel_id)?;
 
             let num = channel.outgoing_reliable_sequence_number;
             channel.outgoing_reliable_sequence_number += 1;

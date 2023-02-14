@@ -1,4 +1,4 @@
-use std::{fmt::Display, net::SocketAddr};
+use std::{collections::HashMap, fmt::Display, net::SocketAddr};
 
 use tokio::sync::mpsc::Sender;
 
@@ -6,7 +6,7 @@ use super::{
     channel::{Channel, ChannelID},
     host::hostevents::{HostRecvEvent, HostSendEvent},
     protocol::PacketFlags,
-    ChannelError, ENetError,
+    ChannelError, ENetError, Result,
 };
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
@@ -40,7 +40,7 @@ impl From<PeerID> for u16 {
 impl TryFrom<PeerID> for u8 {
     type Error = ENetError;
 
-    fn try_from(value: PeerID) -> Result<Self, Self::Error> {
+    fn try_from(value: PeerID) -> std::result::Result<Self, Self::Error> {
         let val: u16 = value.0.into();
         Ok(val.try_into()?)
     }
@@ -55,7 +55,7 @@ pub struct PeerInfo {
     pub(crate) incoming_session_id: u16,
     pub(crate) address: SocketAddr,
 
-    pub(crate) channels: Vec<Channel>,
+    pub(crate) channels: HashMap<ChannelID, Channel>,
 
     pub(crate) incoming_bandwidth: u32,
     pub(crate) outgoing_bandwidth: u32,
@@ -83,16 +83,12 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub async fn send(
-        &mut self,
-        p: Packet,
-        channel: ChannelID,
-    ) -> std::result::Result<(), ChannelError> {
+    pub async fn send(&mut self, p: Packet) -> std::result::Result<(), ChannelError> {
         self.out_channel
             .send(HostRecvEvent {
+                channel_id: p.channel,
                 event: PeerSendEvent::Send(p),
                 peer_id: self.id,
-                channel_id: channel,
             })
             .await?;
         Ok(())
@@ -104,6 +100,24 @@ impl Peer {
             None => PeerRecvEvent::Disconnect,
             Some(e) => e.event,
         }
+    }
+}
+
+impl PeerInfo {
+    pub fn get_channel(&self, id: ChannelID) -> Result<&Channel> {
+        let channel = self
+            .channels
+            .get(&id)
+            .ok_or(ENetError::InvalidChannelId(id));
+        channel
+    }
+
+    pub fn get_mut_channel(&mut self, id: ChannelID) -> Result<&mut Channel> {
+        let channel = self
+            .channels
+            .get_mut(&id)
+            .ok_or(ENetError::InvalidChannelId(id));
+        channel
     }
 }
 

@@ -58,13 +58,13 @@ impl PacketFlags {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProtocolHeader {
     pub peer_id: u16,   // peer id from outgoing peer id | HEADER FLAGS
     pub sent_time: u16, // first 16 bits of current time (ms) (dont be zero)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProtocolCommandHeader {
     pub command: u8,                   // Command | Command flags
     pub channel_id: u8, // Separate from clients (can have multiple clients), I think specified by user unless special packet then 0xFF

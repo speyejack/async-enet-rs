@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
+use std::{collections::VecDeque, net::SocketAddr};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio::{net::UdpSocket, time::Duration};
 
@@ -19,6 +19,7 @@ use super::{deserializer::EnetDeserializer, serializer::EnetSerializer};
 pub struct ENetSocket {
     pub socket: UdpSocket,
     buf: [u8; 100],
+    incoming_queue: VecDeque<Command>,
 }
 
 impl ENetSocket {
@@ -26,17 +27,24 @@ impl ENetSocket {
         ENetSocket {
             socket,
             buf: [0; 100],
+            incoming_queue: Default::default(),
         }
     }
 
     pub async fn recv(&mut self) -> Result<Command> {
-        let (_len, addr) = self.socket.recv_from(&mut self.buf).await?;
-        self.deserialize_command(addr)
+        if let Some(c) = self.incoming_queue.pop_front() {
+            return Ok(c);
+        }
+        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
+        self.deserialize_command(addr, len)
     }
 
-    fn deserialize_command(&mut self, addr: SocketAddr) -> Result<Command> {
+    fn deserialize_command(&mut self, addr: SocketAddr, len: usize) -> Result<Command> {
         let buf = &self.buf[..];
-        let mut deser = EnetDeserializer { input: buf };
+        let mut deser = EnetDeserializer {
+            input: buf,
+            consumed: 0,
+        };
 
         // let header = ProtocolHeader::deserialize(&mut deser)?;
         let peer_id = u16::deserialize(&mut deser)?;
@@ -54,54 +62,59 @@ impl ENetSocket {
 
         let header = ProtocolHeader { peer_id, sent_time };
 
-        let packet_type = ProtocolCommandHeader::deserialize(&mut deser)?;
+        while deser.consumed < len {
+            let header = header.clone();
 
-        let packet: ProtocolCommand = match &packet_type.command & 0x0F {
-            0 => ProtocolCommand::None,
-            1 => AcknowledgeCommand::deserialize(&mut deser)?.into(),
-            2 => ConnectCommand::deserialize(&mut deser)?.into(),
-            3 => VerifyConnectCommand::deserialize(&mut deser)?.into(),
-            4 => DisconnectCommand::deserialize(&mut deser)?.into(),
-            5 => PingCommand::deserialize(&mut deser)?.into(),
-            6 => SendReliableCommand::deserialize(&mut deser)?.into(),
-            7 => SendUnreliableCommand::deserialize(&mut deser)?.into(),
-            8 => SendFragmentCommand::deserialize(&mut deser)?.into(),
-            9 => SendUnsequencedCommand::deserialize(&mut deser)?.into(),
-            10 => BandwidthLimitCommand::deserialize(&mut deser)?.into(),
-            11 => ThrottleConfigureCommand::deserialize(&mut deser)?.into(),
-            12 => ProtocolCommand::SendUnreliableFragment(SendFragmentCommand::deserialize(
-                &mut deser,
-            )?),
-            13 => ProtocolCommand::Count,
-            _ => return Err(ENetError::Other("Invalid packet header".to_string())),
-        };
+            let packet_type = ProtocolCommandHeader::deserialize(&mut deser)?;
 
-        let flags = PacketFlags {
-            reliable: ((&packet_type.command >> 7) & 1) == 1,
-            unsequenced: ((&packet_type.command >> 6) & 1) == 1,
+            let packet: ProtocolCommand = match &packet_type.command & 0x0F {
+                0 => ProtocolCommand::None,
+                1 => AcknowledgeCommand::deserialize(&mut deser)?.into(),
+                2 => ConnectCommand::deserialize(&mut deser)?.into(),
+                3 => VerifyConnectCommand::deserialize(&mut deser)?.into(),
+                4 => DisconnectCommand::deserialize(&mut deser)?.into(),
+                5 => PingCommand::deserialize(&mut deser)?.into(),
+                6 => SendReliableCommand::deserialize(&mut deser)?.into(),
+                7 => SendUnreliableCommand::deserialize(&mut deser)?.into(),
+                8 => SendFragmentCommand::deserialize(&mut deser)?.into(),
+                9 => SendUnsequencedCommand::deserialize(&mut deser)?.into(),
+                10 => BandwidthLimitCommand::deserialize(&mut deser)?.into(),
+                11 => ThrottleConfigureCommand::deserialize(&mut deser)?.into(),
+                12 => ProtocolCommand::SendUnreliableFragment(SendFragmentCommand::deserialize(
+                    &mut deser,
+                )?),
+                13 => ProtocolCommand::Count,
+                _ => return Err(ENetError::Other("Invalid packet header".to_string())),
+            };
 
-            // TODO impl these flags
-            no_allocate: false,
-            unreliable_fragment: false,
-            sent: false,
-            is_compressed,
-            send_time,
-        };
+            let flags = PacketFlags {
+                reliable: ((&packet_type.command >> 7) & 1) == 1,
+                unsequenced: ((&packet_type.command >> 6) & 1) == 1,
 
-        let info = CommandInfo {
-            addr,
-            flags,
-            peer_id: header.peer_id.into(),
-            channel_id: packet_type.channel_id,
-            reliable_sequence_number: packet_type.reliable_sequence_number,
-            sent_time: Duration::from_millis(header.sent_time.into()),
-            session_id,
-        };
+                // TODO impl these flags
+                no_allocate: false,
+                unreliable_fragment: false,
+                sent: false,
+                is_compressed,
+                send_time,
+            };
 
-        Ok(Command {
-            command: packet,
-            info,
-        })
+            let info = CommandInfo {
+                addr,
+                flags,
+                peer_id: header.peer_id.into(),
+                channel_id: packet_type.channel_id,
+                reliable_sequence_number: packet_type.reliable_sequence_number,
+                sent_time: Duration::from_millis(header.sent_time.into()),
+                session_id,
+            };
+            self.incoming_queue.push_back(Command {
+                command: packet,
+                info,
+            });
+        }
+
+        Ok(self.incoming_queue.pop_front().unwrap())
     }
 
     pub async fn send(&mut self, command: &Command) -> Result<()> {

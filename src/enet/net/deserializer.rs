@@ -5,6 +5,7 @@ use crate::enet::EncodingError;
 
 pub(crate) struct EnetDeserializer<B: Buf> {
     pub input: B,
+    pub consumed: usize,
 }
 
 impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
@@ -21,6 +22,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 1;
         visitor.visit_bool(self.input.get_u8() != 0)
     }
 
@@ -28,6 +30,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 1;
         visitor.visit_i8(self.input.get_i8())
     }
 
@@ -35,6 +38,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 2;
         visitor.visit_i16(self.input.get_i16())
     }
 
@@ -42,6 +46,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 4;
         visitor.visit_i32(self.input.get_i32())
     }
 
@@ -49,6 +54,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 8;
         visitor.visit_i64(self.input.get_i64())
     }
 
@@ -56,6 +62,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 1;
         visitor.visit_u8(self.input.get_u8())
     }
 
@@ -63,6 +70,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 2;
         visitor.visit_u16(self.input.get_u16())
     }
 
@@ -70,6 +78,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 4;
         visitor.visit_u32(self.input.get_u32())
     }
 
@@ -77,6 +86,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 8;
         visitor.visit_u64(self.input.get_u64())
     }
 
@@ -84,6 +94,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 4;
         visitor.visit_f32(self.input.get_f32())
     }
 
@@ -91,6 +102,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 8;
         visitor.visit_f64(self.input.get_f64())
     }
 
@@ -98,6 +110,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
     where
         V: serde::de::Visitor<'de>,
     {
+        self.consumed += 1;
         let c: char =
             char::from_u32(self.input.get_u8().into()).ok_or(EncodingError::CustomError)?;
         visitor.visit_char(c)
@@ -176,7 +189,6 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
             return Err(EncodingError::NotEnoughData(self.input.remaining(), len));
         }
 
-        println!("Len: 0x{:#?} rem: 0x{:#?}", len, self.input.remaining());
         visitor.visit_seq(Access {
             deserializer: self,
             len: len.into(),

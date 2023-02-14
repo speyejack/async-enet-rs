@@ -38,10 +38,7 @@ impl HostRecvEvent {
             .get_mut(&self.peer_id)
             .ok_or(ENetError::InvalidPeerId(self.peer_id))?;
 
-        let channel = peer
-            .channels
-            .get(self.channel_id as usize)
-            .ok_or(ENetError::InvalidChannelId(self.channel_id))?;
+        let channel = peer.get_channel(self.channel_id)?;
 
         let (command, flags) = match &&self.event {
             PeerSendEvent::Send(p) if p.flags.reliable => (
