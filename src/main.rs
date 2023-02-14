@@ -1,12 +1,23 @@
 use enet::{
     host::{hostevents::HostPollEvent, Host},
-    Result,
+    peer::{Peer, PeerSendEvent},
+    ENetError, Result,
 };
 use tracing_subscriber::EnvFilter;
 
 use crate::enet::{host::config::HostConfig, peer::PeerRecvEvent};
 
 mod enet;
+
+async fn poll_till_peer(host: &mut Host) -> Result<Peer> {
+    loop {
+        let packet = host.poll_until_event().await?;
+        match packet {
+            HostPollEvent::Connect(peer) => return Ok(peer),
+            _ => {}
+        };
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,25 +27,31 @@ async fn main() -> Result<()> {
     let config = HostConfig::new(10)?;
     let mut host = Host::create(config, "0.0.0.0:1027").await?;
 
-    let packet = host.poll_until_event().await?;
-    let mut peer = match packet {
-        HostPollEvent::Connect(p) => p,
-        _ => panic!("First packet not connect"),
-    };
+    let mut peer_1 = poll_till_peer(&mut host).await?;
+    let mut peer_2 = poll_till_peer(&mut host).await?;
 
-    let join_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
-            let peer_event = peer.poll().await;
-            tracing::info!("Peer event: {peer_event:?}");
-            if let PeerRecvEvent::Disconnect = peer_event {
-                break;
+            tokio::select! {
+                packet = peer_1.poll() => {
+                    match packet {
+                        PeerRecvEvent::Recv(p) => peer_2.send(p).await?,
+                        PeerRecvEvent::Disconnect => return Ok::<(), ENetError>(()),
+                    }
+                },
+                packet = peer_2.poll() => {
+                    match packet {
+                        PeerRecvEvent::Recv(p) => peer_1.send(p).await?,
+                        PeerRecvEvent::Disconnect => return Ok(()),
+                    }
+                }
             }
         }
     });
 
     loop {
-        let event = host.poll().await?;
+        let event = host.poll_until_event().await?;
 
-        println!("Got packet: {event:#x?}");
+        tracing::info!("Got packet: {event:#x?}");
     }
 }
