@@ -112,7 +112,7 @@ impl Host {
 
         let mut peer_info = self.peers.entry(peer_id).or_insert(PeerInfo {
             outgoing_peer_id: connect.outgoing_peer_id.into(),
-            incoming_peer_id: self.next_peer.into(),
+            incoming_peer_id: peer_id,
             connect_id: connect.connect_id,
             outgoing_session_id: 0xFF,
             incoming_session_id: 0xFF,
@@ -331,8 +331,7 @@ impl Host {
             let channel = peer
                 .channels
                 .get_mut(channel_id as usize)
-                .ok_or(ENetError::InvalidChannelId(channel_id))
-                .unwrap();
+                .ok_or(ENetError::InvalidChannelId(channel_id));
 
             let num = channel.outgoing_reliable_sequence_number;
             channel.outgoing_reliable_sequence_number += 1;

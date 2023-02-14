@@ -44,6 +44,7 @@ impl ENetSocket {
         let is_compressed = (peer_id >> 14) > 0;
         let send_time = (peer_id >> 15) > 0;
         let session_id = (peer_id >> 12) & 3;
+        let peer_id = peer_id & 0xFFF;
 
         let sent_time = if send_time {
             u16::deserialize(&mut deser)?

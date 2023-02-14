@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub type ChannelID = u16;
 
+#[derive(Debug)]
 pub struct Channel {
     pub outgoing_reliable_sequence_number: u16,
     pub outgoing_unreliable_sequence_number: u16,

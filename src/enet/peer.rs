@@ -46,6 +46,7 @@ impl TryFrom<PeerID> for u8 {
     }
 }
 
+#[derive(Debug)]
 pub struct PeerInfo {
     pub(crate) outgoing_peer_id: PeerID,
     pub(crate) incoming_peer_id: PeerID,
