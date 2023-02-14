@@ -50,7 +50,7 @@ impl ENetSocket {
         // let header = ProtocolHeader::deserialize(&mut deser)?;
         let peer_id = u16::deserialize(&mut deser)?;
 
-        let is_compressed = (peer_id >> 14) > 0;
+        let is_compressed = ((peer_id >> 14) & 1) == 1;
         let send_time = (peer_id >> 15) > 0;
         let session_id = (peer_id >> 12) & 3;
         let peer_id = peer_id & 0xFFF;
@@ -162,7 +162,6 @@ impl ENetSocket {
 
         let command_flags =
             if flags.reliable { 1 << 7 } else { 0 } | if flags.unsequenced { 1 << 6 } else { 0 };
-        tracing::trace!("Adding command flags: {command_flags:x}");
 
         let command = command | command_flags;
 
