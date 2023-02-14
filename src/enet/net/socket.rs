@@ -16,6 +16,7 @@ use crate::enet::{
 
 use super::{deserializer::EnetDeserializer, serializer::EnetSerializer};
 
+#[derive(Debug)]
 pub struct ENetSocket {
     pub socket: UdpSocket,
     buf: [u8; 100],

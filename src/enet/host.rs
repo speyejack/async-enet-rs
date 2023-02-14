@@ -273,7 +273,8 @@ impl Host {
             }
             ProtocolCommand::VerifyConnect(_) => todo!(),
             ProtocolCommand::Disconnect(_) => {
-                return Ok(HostPollEvent::Disconnect(command.info.peer_id))
+                self.disconnect_peer(command.info.peer_id).await;
+                return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
             ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,

@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::enet::Result;
 
+#[derive(Debug)]
 pub struct HostConfig {
     pub peer_count: usize,
     pub channel_limit: Option<usize>,
