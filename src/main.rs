@@ -22,6 +22,8 @@ async fn poll_till_peer(host: &mut Host) -> Result<Peer> {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
+        .with_level(true)
+        .without_time()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
     let config = HostConfig::new(10)?;

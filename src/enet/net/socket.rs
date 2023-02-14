@@ -123,7 +123,6 @@ impl ENetSocket {
         let (bytes, size) = self.serialize_command(command)?;
 
         let bytes = &bytes[0..size];
-        tracing::trace!("Sending packet: {size} => {bytes:x?}");
         self.socket.send_to(bytes, addr).await?;
         Ok(())
     }

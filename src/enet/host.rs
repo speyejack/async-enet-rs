@@ -43,6 +43,7 @@ pub struct Host {
     pub from_cli_tx: Sender<HostRecvEvent>,
 }
 
+#[derive(Debug, Clone)]
 struct UnAckPacket {
     command: Command,
     last_sent: Duration,
@@ -213,6 +214,7 @@ impl Host {
         if let Some(id) = timed_out {
             self.disconnect_peer(id).await;
         }
+
         select! {
             incoming_command = self.socket.recv() => {
                 self.handle_incoming_command(&incoming_command?).await
@@ -231,6 +233,7 @@ impl Host {
     }
 
     async fn disconnect_peer(&mut self, id: PeerID) -> Option<PeerInfo> {
+        tracing::debug!("Disconnecting peer!");
         self.unack_packets.retain(|_k, v| v.peer_id != id);
         let peer = self.peers.remove(&id);
         if let Some(peer) = peer {
@@ -385,6 +388,7 @@ impl Host {
 
         for (_k, p) in resend_packets {
             if p.retries >= self.config.retry_count {
+                tracing::debug!("Packet exceeded retry count: {p:#?}");
                 return Ok(Some(p.command.info.peer_id));
             }
             self.socket.send(&p.command).await?;
