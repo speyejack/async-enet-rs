@@ -1,6 +1,7 @@
 use enet::{
     host::{hostevents::HostPollEvent, Host},
-    peer::{Peer, PeerSendEvent},
+    peer::{Packet, Peer, PeerSendEvent},
+    protocol::PacketFlags,
     ENetError, Result,
 };
 use tracing_subscriber::EnvFilter;
@@ -12,11 +13,26 @@ mod enet;
 async fn poll_till_peer(host: &mut Host) -> Result<Peer> {
     loop {
         let packet = host.poll_until_event().await?;
-        match packet {
-            HostPollEvent::Connect(peer) => return Ok(peer),
-            _ => {}
+        if let HostPollEvent::Connect(mut peer) = packet {
+            peer.send(Packet {
+                data: "Welcome!\0".as_bytes().to_vec(),
+                channel: 0,
+                flags: PacketFlags::reliable(),
+            })
+            .await?;
+            return Ok(peer);
         };
     }
+}
+
+async fn send_msg(peer: &mut Peer, mut p: Packet) {
+    let s = String::from_utf8(p.data).unwrap();
+    let trimmed = s.trim_end_matches('\0');
+    let msg = format!("{} has connected", trimmed);
+    tracing::info!("Msg: {msg}");
+    p.data = msg.as_bytes().to_vec();
+    p.data.push(0);
+    peer.send(p).await.unwrap();
 }
 
 #[tokio::main]
@@ -37,14 +53,20 @@ async fn main() -> Result<()> {
             tokio::select! {
                 packet = peer_1.poll() => {
                     match packet {
-                        PeerRecvEvent::Recv(p) => peer_2.send(p).await?,
+                        PeerRecvEvent::Recv(mut p) => {
+                            send_msg(&mut peer_1, p.clone()).await;
+                            send_msg(&mut peer_2, p).await;
+                        }
                         PeerRecvEvent::Disconnect => return Ok::<(), ENetError>(()),
                     }
                 },
                 packet = peer_2.poll() => {
                     match packet {
-                        PeerRecvEvent::Recv(p) => peer_1.send(p).await?,
-                        PeerRecvEvent::Disconnect => return Ok(()),
+                        PeerRecvEvent::Recv(mut p) => {
+                            send_msg(&mut peer_1, p.clone()).await;
+                            send_msg(&mut peer_2, p).await;
+                        }
+                        PeerRecvEvent::Disconnect => return Ok::<(), ENetError>(()),
                     }
                 }
             }
