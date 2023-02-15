@@ -379,7 +379,7 @@ impl Host {
         let ack_info = CommandInfo {
             addr: peer.address,
             flags,
-            peer_id: command.info.peer_id,
+            peer_id: peer.outgoing_peer_id.into(),
             channel_id: command.info.channel_id,
             session_id: 0,
             reliable_sequence_number: command.info.reliable_sequence_number,
