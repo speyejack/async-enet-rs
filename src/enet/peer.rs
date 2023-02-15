@@ -1,3 +1,5 @@
+mod peer_id;
+pub use peer_id::*;
 use std::{collections::HashMap, fmt::Display, net::SocketAddr};
 
 use tokio::sync::mpsc::Sender;
@@ -8,47 +10,9 @@ use super::{
     protocol::PacketFlags,
     ChannelError, ENetError, Result,
 };
-
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub struct PeerID(pub u16);
-
-impl Display for PeerID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl From<u16> for PeerID {
-    fn from(value: u16) -> Self {
-        PeerID(value)
-    }
-}
-
-impl From<u8> for PeerID {
-    fn from(value: u8) -> Self {
-        let val: u16 = value.into();
-        val.into()
-    }
-}
-
-impl From<PeerID> for u16 {
-    fn from(value: PeerID) -> Self {
-        value.0
-    }
-}
-
-impl TryFrom<PeerID> for u8 {
-    type Error = ENetError;
-
-    fn try_from(value: PeerID) -> std::result::Result<Self, Self::Error> {
-        let val: u16 = value.0.into();
-        Ok(val.try_into()?)
-    }
-}
-
 #[derive(Debug)]
 pub struct PeerInfo {
-    pub(crate) outgoing_peer_id: PeerID,
+    pub(crate) outgoing_peer_id: OutgoingPeerID,
     pub(crate) incoming_peer_id: PeerID,
     pub(crate) connect_id: u32, // Originally was u16
     pub(crate) outgoing_session_id: u16,

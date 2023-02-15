@@ -336,22 +336,20 @@ impl Host {
             .ok_or(ENetError::InvalidPeerId(peer_id))?;
 
         let reliable_sequence_number = if channel_id == 0xFF {
-            let num = peer.outgoing_reliable_sequence_number;
             peer.outgoing_reliable_sequence_number += 1;
-            num
+            peer.outgoing_reliable_sequence_number
         } else {
             let channel = peer.get_mut_channel(channel_id)?;
 
-            let num = channel.outgoing_reliable_sequence_number;
             channel.outgoing_reliable_sequence_number += 1;
-            num
+            channel.outgoing_reliable_sequence_number
         };
         let channel_id = channel_id.try_into()?;
 
         let info = CommandInfo {
             addr: peer.address,
             flags,
-            peer_id: peer.outgoing_peer_id,
+            peer_id: peer.outgoing_peer_id.into(),
             channel_id,
             reliable_sequence_number,
             sent_time: self.config.start_time.elapsed(),
@@ -367,11 +365,26 @@ impl Host {
         }
         .into();
 
-        let ack_info = self.new_command_info(
-            command.info.peer_id,
-            command.info.channel_id.into(),
-            Default::default(),
-        )?;
+        // let ack_info = self.new_command_info(
+        //     command.info.peer_id,
+        //     command.info.channel_id.into(),
+        //     Default::default(),
+        // )?;
+        let flags = PacketFlags::default();
+        let peer = self
+            .peers
+            .get(&command.info.peer_id)
+            .ok_or(ENetError::InvalidPeerId(command.info.peer_id))?;
+
+        let ack_info = CommandInfo {
+            addr: peer.address,
+            flags,
+            peer_id: command.info.peer_id,
+            channel_id: command.info.channel_id,
+            session_id: 0,
+            reliable_sequence_number: command.info.reliable_sequence_number,
+            sent_time: self.config.start_time.elapsed(),
+        };
 
         self.socket
             .send(&Command {

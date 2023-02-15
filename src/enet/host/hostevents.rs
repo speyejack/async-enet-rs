@@ -66,8 +66,7 @@ impl HostRecvEvent {
             ),
         };
 
-        let outgoing_peer_id = peer.outgoing_peer_id;
-        let info = host.new_command_info(outgoing_peer_id, self.channel_id, flags)?;
+        let info = host.new_command_info(self.peer_id, self.channel_id, flags)?;
 
         Ok(Command { command, info })
     }
