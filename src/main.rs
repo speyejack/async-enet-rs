@@ -30,6 +30,7 @@ async fn send_msg(peer: &mut Peer, mut p: Packet) {
     let trimmed = s.trim_end_matches('\0');
     let msg = format!("{} has connected", trimmed);
     tracing::info!("Msg: {msg}");
+    p.flags = PacketFlags::default();
     p.data = msg.as_bytes().to_vec();
     p.data.push(0);
     peer.send(p).await.unwrap();
