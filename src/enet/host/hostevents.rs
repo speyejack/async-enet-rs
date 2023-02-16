@@ -31,12 +31,8 @@ pub struct HostRecvEvent {
 }
 
 impl HostRecvEvent {
-    pub fn to_command(&self, host: &mut Host) -> Result<Command> {
-        tracing::trace!("Converting event to command");
-        let peer = host
-            .peers
-            .get_mut(&self.peer_id)
-            .ok_or(ENetError::InvalidPeerId(self.peer_id))?;
+    pub async fn to_command(&self, host: &mut Host) -> Result<Command> {
+        let peer = host.get_peer_mut(self.peer_id)?;
 
         let channel = peer.get_channel(self.channel_id)?;
 
@@ -50,7 +46,7 @@ impl HostRecvEvent {
             ),
             PeerSendEvent::Send(p) => (
                 ProtocolCommand::SendUnreliable(SendUnreliableCommand {
-                    unreliable_sequence_number: channel.outgoing_unreliable_sequence_number,
+                    unreliable_sequence_number: (channel.outgoing_unreliable_sequence_number + 1),
                     // data_length: p.data.len().try_into()?,
                     data: p.data.clone(),
                 }),
@@ -64,6 +60,12 @@ impl HostRecvEvent {
                 ProtocolCommand::Disconnect(DisconnectCommand { data: 0 }),
                 PacketFlags::reliable(),
             ),
+            PeerSendEvent::Broadcast(_) => {
+                // TODO Handle broadcast - avoid recursion
+                // host.broadcast(self.clone()).await?;
+                // return Ok(None);
+                return Err(ENetError::Other("Broadcast gave to to_command".to_string()));
+            }
         };
 
         let info = host.new_command_info(self.peer_id, self.channel_id, flags)?;

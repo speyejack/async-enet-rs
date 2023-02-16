@@ -1,6 +1,11 @@
 mod peer_id;
 pub use peer_id::*;
-use std::{collections::HashMap, fmt::Display, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use tokio::sync::mpsc::Sender;
 
@@ -10,6 +15,7 @@ use super::{
     protocol::PacketFlags,
     ChannelError, ENetError, Result,
 };
+
 #[derive(Debug)]
 pub struct PeerInfo {
     pub(crate) outgoing_peer_id: OutgoingPeerID,
@@ -36,6 +42,8 @@ pub struct PeerInfo {
     pub(crate) outgoing_reliable_sequence_number: u16,
     pub(crate) incoming_reliable_sequence_number: u16,
     pub(crate) sender: Sender<HostSendEvent>,
+
+    pub(crate) last_msg_time: Instant,
 }
 
 #[derive(Debug)]
@@ -52,6 +60,17 @@ impl Peer {
             .send(HostRecvEvent {
                 channel_id: p.channel,
                 event: PeerSendEvent::Send(p),
+                peer_id: self.id,
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn broadcast(&mut self, p: Packet) -> std::result::Result<(), ChannelError> {
+        self.out_channel
+            .send(HostRecvEvent {
+                channel_id: p.channel,
+                event: PeerSendEvent::Broadcast(p),
                 peer_id: self.id,
             })
             .await?;
@@ -95,6 +114,7 @@ pub struct Packet {
 #[derive(Debug, Clone)]
 pub enum PeerSendEvent {
     Send(Packet),
+    Broadcast(Packet),
     Ping,
     Disconnect,
 }

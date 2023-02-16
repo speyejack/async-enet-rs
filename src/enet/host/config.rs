@@ -11,6 +11,7 @@ pub struct HostConfig {
     pub start_time: Instant,
     pub retry_count: usize,
     pub packet_timeout: Duration,
+    pub ping_interval: Duration,
 }
 
 impl HostConfig {
@@ -23,6 +24,7 @@ impl HostConfig {
             start_time: Instant::now(),
             packet_timeout: Duration::from_secs(1),
             retry_count: 5,
+            ping_interval: Duration::from_millis(500),
         })
     }
 }

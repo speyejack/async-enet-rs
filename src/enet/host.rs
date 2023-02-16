@@ -1,7 +1,11 @@
 pub mod config;
 pub mod hostevents;
 
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use tokio::{
     net::ToSocketAddrs,
@@ -19,8 +23,8 @@ use super::{
     net::socket::ENetSocket,
     peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
-        AcknowledgeCommand, Command, CommandInfo, ConnectCommand, PacketFlags, ProtocolCommand,
-        VerifyConnectCommand,
+        AcknowledgeCommand, Command, CommandInfo, ConnectCommand, PacketFlags, PingCommand,
+        ProtocolCommand, VerifyConnectCommand,
     },
     ChannelError, ENetError, Result,
 };
@@ -132,9 +136,10 @@ impl Host {
             event_data: connect.data,
             sender: to_cli_tx,
             incoming_reliable_sequence_number: 0,
-            outgoing_reliable_sequence_number: 1,
+            outgoing_reliable_sequence_number: 1, // TODO why does this have to be one?
             window_size,
             mtu,
+            last_msg_time: Instant::now(),
         });
 
         // Handle incoming session id
@@ -215,6 +220,7 @@ impl Host {
             self.disconnect_peer(id).await;
         }
 
+        self.send_pings().await?;
         select! {
             incoming_command = self.socket.recv() => {
                 self.handle_incoming_command(&incoming_command?).await
@@ -233,7 +239,7 @@ impl Host {
     }
 
     async fn disconnect_peer(&mut self, id: PeerID) -> Option<PeerInfo> {
-        tracing::debug!("Disconnecting peer!");
+        tracing::debug!("Disconnecting peer {id}");
         self.unack_packets.retain(|_k, v| v.peer_id != id);
         let peer = self.peers.remove(&id);
         if let Some(peer) = peer {
@@ -250,12 +256,16 @@ impl Host {
     }
 
     async fn handle_outgoing_command(&mut self, event: HostRecvEvent) -> Result<HostPollEvent> {
-        let command = event.to_command(self)?;
+        let command = event.to_command(self).await?;
         self.send(command).await?;
         Ok(HostPollEvent::NoEvent)
     }
 
     async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
+        if let Ok(peer) = self.get_peer_mut(command.info.peer_id) {
+            peer.last_msg_time = Instant::now();
+        }
+
         match &command.command {
             ProtocolCommand::Connect(_) => {}
             _ if command.info.flags.reliable => {
@@ -292,11 +302,7 @@ impl Host {
     }
 
     async fn forward_to_peer(&mut self, command: &Command) -> Result<()> {
-        tracing::trace!("Forwarding to speer");
-        let peer = self
-            .peers
-            .get(&command.info.peer_id)
-            .ok_or(ENetError::InvalidPeerId(command.info.peer_id))?;
+        let peer = self.get_peer(command.info.peer_id)?;
 
         let data = match &command.command {
             ProtocolCommand::SendReliable(r) => r.data.clone(),
@@ -329,11 +335,7 @@ impl Host {
         channel_id: ChannelID,
         flags: PacketFlags,
     ) -> Result<CommandInfo> {
-        tracing::trace!("Constructing new command info");
-        let peer = self
-            .peers
-            .get_mut(&peer_id)
-            .ok_or(ENetError::InvalidPeerId(peer_id))?;
+        let peer = self.get_peer_mut(peer_id)?;
 
         let reliable_sequence_number = if channel_id == 0xFF {
             peer.outgoing_reliable_sequence_number += 1;
@@ -341,9 +343,17 @@ impl Host {
         } else {
             let channel = peer.get_mut_channel(channel_id)?;
 
-            channel.outgoing_reliable_sequence_number += 1;
-            channel.outgoing_reliable_sequence_number
+            if flags.reliable {
+                channel.outgoing_unreliable_sequence_number = 0;
+                channel.outgoing_reliable_sequence_number += 1;
+                channel.outgoing_reliable_sequence_number
+            } else {
+                channel.outgoing_unreliable_sequence_number += 1;
+                channel.outgoing_reliable_sequence_number = 1;
+                channel.outgoing_reliable_sequence_number
+            }
         };
+
         let channel_id = channel_id.try_into()?;
 
         let info = CommandInfo {
@@ -365,16 +375,8 @@ impl Host {
         }
         .into();
 
-        // let ack_info = self.new_command_info(
-        //     command.info.peer_id,
-        //     command.info.channel_id.into(),
-        //     Default::default(),
-        // )?;
         let flags = PacketFlags::default();
-        let peer = self
-            .peers
-            .get(&command.info.peer_id)
-            .ok_or(ENetError::InvalidPeerId(command.info.peer_id))?;
+        let peer = self.get_peer(command.info.peer_id)?;
 
         let ack_info = CommandInfo {
             addr: peer.address,
@@ -401,7 +403,6 @@ impl Host {
 
         for (_k, p) in resend_packets {
             if p.retries >= self.config.retry_count {
-                tracing::debug!("Packet exceeded retry count: {p:#?}");
                 return Ok(Some(p.command.info.peer_id));
             }
             self.socket.send(&p.command).await?;
@@ -409,6 +410,32 @@ impl Host {
             p.last_sent = self.config.start_time.elapsed();
         }
         Ok(None)
+    }
+
+    async fn send_pings(&mut self) -> Result<()> {
+        let update_peers: Vec<_> = self
+            .peers
+            .iter()
+            .filter(|(_, v)| v.last_msg_time.elapsed() > self.config.ping_interval)
+            .map(|(k, _)| *k)
+            .collect();
+
+        for peer_id in update_peers {
+            let peer = self.get_peer_mut(peer_id)?;
+
+            peer.last_msg_time = Instant::now();
+
+            let info = self.new_command_info(peer_id, 0xFF, PacketFlags::reliable())?;
+
+            let ping_command = PingCommand {}.into();
+            let command = Command {
+                command: ping_command,
+                info,
+            };
+
+            self.send(command).await?;
+        }
+        Ok(())
     }
 
     pub async fn broadcast(&mut self, event: HostRecvEvent) -> Result<()> {
@@ -431,5 +458,17 @@ impl Host {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn get_peer_mut(&mut self, peer_id: PeerID) -> Result<&mut PeerInfo> {
+        self.peers
+            .get_mut(&peer_id)
+            .ok_or(ENetError::InvalidPeerId(peer_id))
+    }
+
+    pub(crate) fn get_peer(&self, peer_id: PeerID) -> Result<&PeerInfo> {
+        self.peers
+            .get(&peer_id)
+            .ok_or(ENetError::InvalidPeerId(peer_id))
     }
 }

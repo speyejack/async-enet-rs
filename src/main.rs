@@ -47,7 +47,9 @@ async fn main() -> Result<()> {
     let mut host = Host::create(config, "0.0.0.0:1027").await?;
 
     let mut peer_1 = poll_till_peer(&mut host).await?;
+    tracing::debug!("Got peer 1: {:?}", peer_1);
     let mut peer_2 = poll_till_peer(&mut host).await?;
+    tracing::debug!("Got peer 2: {:?}", peer_2);
 
     tokio::spawn(async move {
         loop {
@@ -74,9 +76,14 @@ async fn main() -> Result<()> {
         }
     });
 
+    let mut other_peers = Vec::new();
     loop {
         let event = host.poll_until_event().await?;
-
-        tracing::info!("Got packet: {event:#x?}");
+        if let HostPollEvent::Connect(p) = event {
+            tracing::info!("Added peer");
+            other_peers.push(p);
+        } else {
+            tracing::info!("Got packet: {event:#x?}");
+        }
     }
 }
