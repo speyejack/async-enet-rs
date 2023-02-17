@@ -14,6 +14,7 @@ pub struct Command {
 pub struct CommandInfo {
     pub addr: SocketAddr,
     pub flags: PacketFlags,
+    pub internal_peer_id: PeerID,
     pub peer_id: PeerID,
     pub channel_id: u8,
     pub session_id: u16,

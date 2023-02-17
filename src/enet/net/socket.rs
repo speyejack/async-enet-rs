@@ -104,6 +104,7 @@ impl ENetSocket {
                 addr,
                 flags,
                 peer_id: header.peer_id.into(),
+                internal_peer_id: header.peer_id.into(),
                 channel_id: packet_type.channel_id,
                 reliable_sequence_number: packet_type.reliable_sequence_number,
                 sent_time: Duration::from_millis(header.sent_time.into()),

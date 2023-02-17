@@ -41,7 +41,7 @@ pub struct Host {
     pub random: random::Default,
 
     pub next_peer: u16,
-    unack_packets: HashMap<u16, UnAckPacket>,
+    unack_packets: HashMap<(PeerID, ChannelID, u16), UnAckPacket>,
 
     pub receiver: Receiver<HostRecvEvent>,
 
@@ -61,7 +61,7 @@ impl UnAckPacket {
     pub fn new(command: Command) -> Self {
         Self {
             last_sent: command.info.sent_time,
-            peer_id: command.info.peer_id,
+            peer_id: command.info.internal_peer_id,
             retries: 0,
             command,
         }
@@ -189,9 +189,14 @@ impl Host {
         Ok((peer, verify))
     }
 
-    fn handle_ack(&mut self, peer_id: PeerID, ack: &AcknowledgeCommand) -> Result<()> {
+    fn handle_ack(
+        &mut self,
+        peer_id: PeerID,
+        channel: ChannelID,
+        ack: &AcknowledgeCommand,
+    ) -> Result<()> {
         self.unack_packets
-            .remove(&ack.received_reliable_sequence_number);
+            .remove(&(peer_id, channel, ack.received_reliable_sequence_number));
         let rtt = ack
             .received_sent_time
             .to_duration(&self.config.start_time.elapsed())
@@ -244,8 +249,8 @@ impl Host {
 
         let timed_out = self.resend_missing_packets().await?;
 
-        if let Some(id) = timed_out {
-            self.disconnect_peer(id).await?;
+        for disc_peer in timed_out {
+            self.disconnect_peer(disc_peer).await?;
         }
 
         self.send_pings().await?;
@@ -268,16 +273,21 @@ impl Host {
 
     async fn disconnect_peer(&mut self, id: PeerID) -> Result<PeerInfo> {
         tracing::debug!("Disconnecting peer {id}");
-        self.unack_packets.retain(|_k, v| v.peer_id != id);
+        self.unack_packets.retain(|k, _| k.0 != id);
 
         let info = self.new_command_info(id, 0xFF, PacketFlags::default())?;
-        self.send(Command {
-            info,
-            command: DisconnectCommand { data: 0 }.into(),
-        })
-        .await?;
+        tracing::trace!("Info output: {:?}", info);
 
+        let send_result = self
+            .send(Command {
+                info,
+                command: DisconnectCommand { data: 0 }.into(),
+            })
+            .await;
+
+        tracing::debug!("Removed player");
         let peer = self.peers.remove(&id);
+        send_result?;
         if let Some(peer) = peer {
             let _result = peer
                 .sender
@@ -315,9 +325,11 @@ impl Host {
                 self.disconnect_peer(command.info.peer_id).await?;
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
-            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command, true).await?,
-            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command, false).await?,
-            ProtocolCommand::Ack(r) => self.handle_ack(command.info.peer_id, r)?,
+            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::Ack(r) => {
+                self.handle_ack(command.info.peer_id, command.info.channel_id.into(), r)?
+            }
 
             _ => {}
         }
@@ -352,7 +364,7 @@ impl Host {
         Ok(())
     }
 
-    async fn forward_to_peer(&mut self, command: &Command, is_reliable: bool) -> Result<()> {
+    async fn forward_to_peer(&mut self, command: &Command) -> Result<()> {
         let peer = self.get_peer(command.info.peer_id)?;
 
         let data = match &command.command {
@@ -414,6 +426,7 @@ impl Host {
             addr: peer.address,
             flags,
             peer_id: peer.outgoing_peer_id.into(),
+            internal_peer_id: peer_id,
             channel_id,
             reliable_sequence_number,
             sent_time: self.config.start_time.elapsed(),
@@ -436,6 +449,7 @@ impl Host {
             addr: peer.address,
             flags,
             peer_id: peer.outgoing_peer_id.into(),
+            internal_peer_id: command.info.peer_id.into(),
             channel_id: command.info.channel_id,
             session_id: 0,
             reliable_sequence_number: command.info.reliable_sequence_number,
@@ -450,20 +464,29 @@ impl Host {
             .await
     }
 
-    async fn resend_missing_packets(&mut self) -> Result<Option<PeerID>> {
+    async fn resend_missing_packets(&mut self) -> Result<Vec<PeerID>> {
+        // tracing::trace!(
+        //     "Packets: {:?}",
+        //     self.unack_packets
+        //         .iter()
+        //         .map(|(k, v)| (k, v.peer_id))
+        //         .collect::<Vec<_>>()
+        // );
         let resend_packets = self.unack_packets.iter_mut().filter(|x| {
             self.config.start_time.elapsed() - x.1.last_sent > self.config.packet_timeout
         });
 
+        let mut disconnected = Vec::new();
         for (_k, p) in resend_packets {
             if p.retries >= self.config.retry_count {
-                return Ok(Some(p.command.info.peer_id));
+                disconnected.push(p.peer_id);
+                continue;
             }
             self.socket.send(&p.command).await?;
             p.retries += 1;
             p.last_sent = self.config.start_time.elapsed();
         }
-        Ok(None)
+        Ok(disconnected)
     }
 
     async fn send_pings(&mut self) -> Result<()> {
@@ -474,6 +497,7 @@ impl Host {
             .map(|(k, _)| *k)
             .collect();
 
+        tracing::trace!("Pinging to update peers {:?}", update_peers);
         for peer_id in update_peers {
             let peer = self.get_peer_mut(peer_id)?;
 
@@ -506,7 +530,11 @@ impl Host {
 
         if command.info.flags.reliable {
             self.unack_packets.insert(
-                command.info.reliable_sequence_number,
+                (
+                    command.info.internal_peer_id,
+                    command.info.channel_id.into(),
+                    command.info.reliable_sequence_number,
+                ),
                 UnAckPacket::new(command),
             );
         }
