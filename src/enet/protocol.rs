@@ -2,7 +2,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use super::{peer::PeerID, ENetError};
+use super::{net::time::PacketTime, peer::PeerID, ENetError};
 
 #[derive(Debug, Clone)]
 pub struct Command {
@@ -94,7 +94,7 @@ pub enum ProtocolCommand {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AcknowledgeCommand {
     pub received_reliable_sequence_number: u16, // Current number (no inc)
-    pub received_sent_time: u16,                // Ack sent time
+    pub received_sent_time: PacketTime,         // Ack sent time
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

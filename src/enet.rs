@@ -13,7 +13,7 @@ use thiserror::*;
 use self::{
     channel::ChannelID,
     host::hostevents::{HostRecvEvent, HostSendEvent},
-    peer::{PeerID},
+    peer::PeerID,
 };
 
 pub type Result<T> = std::result::Result<T, ENetError>;
@@ -46,6 +46,9 @@ pub enum ENetError {
 
     #[error("Unexpected packet type")]
     UnexpectedPacketType,
+
+    #[error("Invalid packet received")]
+    InvalidPacket(),
 
     #[error("Invalid peer id: {0}")]
     InvalidPeerId(PeerID),

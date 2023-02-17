@@ -44,6 +44,8 @@ pub struct PeerInfo {
     pub(crate) sender: Sender<HostSendEvent>,
 
     pub(crate) last_msg_time: Instant,
+    pub(crate) round_trip_time: Duration,
+    pub(crate) round_trip_time_variance: Duration,
 }
 
 #[derive(Debug)]

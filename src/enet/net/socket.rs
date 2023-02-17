@@ -14,7 +14,7 @@ use crate::enet::{
     ENetError, Result,
 };
 
-use super::{deserializer::EnetDeserializer, serializer::EnetSerializer};
+use super::{deserializer::EnetDeserializer, serializer::EnetSerializer, time::PacketTime};
 
 #[derive(Debug)]
 pub struct ENetSocket {
@@ -171,9 +171,10 @@ impl ENetSocket {
             reliable_sequence_number: p.info.reliable_sequence_number,
         };
 
+        let sent_time = PacketTime::from_duration(&p.info.sent_time);
         let packet_header = ProtocolHeader {
             peer_id,
-            sent_time: p.info.sent_time.as_millis() as u16,
+            sent_time: sent_time.into(),
         };
 
         packet_header.serialize(&mut ser)?;

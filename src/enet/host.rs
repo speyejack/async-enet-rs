@@ -20,7 +20,7 @@ use self::{
 
 use super::{
     channel::{Channel, ChannelID},
-    net::socket::ENetSocket,
+    net::{socket::ENetSocket, time::PacketTime},
     peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
         AcknowledgeCommand, Command, CommandInfo, ConnectCommand, PacketFlags, PingCommand,
@@ -140,6 +140,8 @@ impl Host {
             window_size,
             mtu,
             last_msg_time: Instant::now(),
+            round_trip_time: Duration::from_millis(500),
+            round_trip_time_variance: Duration::ZERO,
         });
 
         // Handle incoming session id
@@ -183,6 +185,29 @@ impl Host {
         };
 
         Ok((peer, verify))
+    }
+
+    fn handle_ack(&mut self, peer_id: PeerID, ack: &AcknowledgeCommand) -> Result<()> {
+        self.unack_packets
+            .remove(&ack.received_reliable_sequence_number);
+        let rtt = ack
+            .received_sent_time
+            .to_duration(&self.config.start_time.elapsed())
+            .ok_or(ENetError::InvalidPacket())?;
+
+        let mut peer = self.get_peer_mut(peer_id)?;
+
+        let diff = if rtt > peer.round_trip_time {
+            rtt - peer.round_trip_time
+        } else {
+            peer.round_trip_time - rtt
+        };
+
+        peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
+
+        peer.round_trip_time += diff / 8;
+        peer.round_trip_time_variance += diff / 4;
+        Ok(())
     }
 
     pub async fn connect(
@@ -291,10 +316,7 @@ impl Host {
             }
             ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
-            ProtocolCommand::Ack(r) => {
-                self.unack_packets
-                    .remove(&r.received_reliable_sequence_number);
-            }
+            ProtocolCommand::Ack(r) => self.handle_ack(command.info.peer_id, r)?,
 
             _ => {}
         }
@@ -371,7 +393,7 @@ impl Host {
     async fn send_ack_packet(&mut self, command: &Command) -> Result<()> {
         let ack_command = AcknowledgeCommand {
             received_reliable_sequence_number: command.info.reliable_sequence_number,
-            received_sent_time: command.info.sent_time.as_millis() as u16,
+            received_sent_time: PacketTime::from_duration(&command.info.sent_time),
         }
         .into();
 
