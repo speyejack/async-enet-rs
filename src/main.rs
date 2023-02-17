@@ -12,7 +12,7 @@ mod enet;
 
 async fn poll_till_peer(host: &mut Host) -> Result<Peer> {
     loop {
-        let packet = host.poll_until_event().await?;
+        let packet = host.poll().await?;
         if let HostPollEvent::Connect(mut peer) = packet {
             peer.send(Packet {
                 data: "Welcome!\0".as_bytes().to_vec(),
@@ -76,12 +76,12 @@ async fn main() -> Result<()> {
         }
     });
 
-    let mut other_peers = Vec::new();
+    // let mut other_peers = Vec::new();
     loop {
-        let event = host.poll_until_event().await?;
+        let event = host.poll().await?;
         if let HostPollEvent::Connect(p) = event {
             tracing::info!("Added peer");
-            other_peers.push(p);
+            // other_peers.push(p);
         } else {
             tracing::info!("Got packet: {event:#x?}");
         }

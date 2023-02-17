@@ -13,6 +13,8 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
+use crate::enet::protocol::DisconnectCommand;
+
 use self::{
     config::HostConfig,
     hostevents::{HostPollEvent, HostRecvEvent, HostSendEvent},
@@ -135,8 +137,8 @@ impl Host {
             packet_throttle_deceleration: connect.packet_throttle_deceleration,
             event_data: connect.data,
             sender: to_cli_tx,
-            incoming_reliable_sequence_number: 0,
-            outgoing_reliable_sequence_number: 1, // TODO why does this have to be one?
+            incoming_reliable_sequence_number: 1,
+            outgoing_reliable_sequence_number: 0,
             window_size,
             mtu,
             last_msg_time: Instant::now(),
@@ -224,17 +226,18 @@ impl Host {
         // self.peers.insert(peer, new_peer);
     }
 
-    pub async fn poll_until_event(&mut self) -> Result<HostPollEvent> {
+    pub async fn poll(&mut self) -> Result<HostPollEvent> {
         loop {
-            let event = self.poll().await?;
+            let event = self.poll_for_event().await;
             match event {
-                HostPollEvent::NoEvent => {}
-                event => return Ok(event),
+                Ok(HostPollEvent::NoEvent) => {}
+                Ok(event) => return Ok(event),
+                Err(e) => tracing::warn!("Host err: {e}"),
             }
         }
     }
 
-    pub async fn poll(&mut self) -> Result<HostPollEvent> {
+    pub async fn poll_for_event(&mut self) -> Result<HostPollEvent> {
         // Receive messages and pass them off
         // Send messages
         // Resend any messages that havent been resent again
@@ -242,7 +245,7 @@ impl Host {
         let timed_out = self.resend_missing_packets().await?;
 
         if let Some(id) = timed_out {
-            self.disconnect_peer(id).await;
+            self.disconnect_peer(id).await?;
         }
 
         self.send_pings().await?;
@@ -263,9 +266,17 @@ impl Host {
         }
     }
 
-    async fn disconnect_peer(&mut self, id: PeerID) -> Option<PeerInfo> {
+    async fn disconnect_peer(&mut self, id: PeerID) -> Result<PeerInfo> {
         tracing::debug!("Disconnecting peer {id}");
         self.unack_packets.retain(|_k, v| v.peer_id != id);
+
+        let info = self.new_command_info(id, 0xFF, PacketFlags::default())?;
+        self.send(Command {
+            info,
+            command: DisconnectCommand { data: 0 }.into(),
+        })
+        .await?;
+
         let peer = self.peers.remove(&id);
         if let Some(peer) = peer {
             let _result = peer
@@ -275,9 +286,9 @@ impl Host {
                     channel_id: 0xFF,
                 })
                 .await;
-            return Some(peer);
+            return Ok(peer);
         }
-        None
+        Err(ENetError::InvalidPeerId(id))
     }
 
     async fn handle_outgoing_command(&mut self, event: HostRecvEvent) -> Result<HostPollEvent> {
@@ -287,17 +298,7 @@ impl Host {
     }
 
     async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
-        if let Ok(peer) = self.get_peer_mut(command.info.peer_id) {
-            peer.last_msg_time = Instant::now();
-        }
-
-        match &command.command {
-            ProtocolCommand::Connect(_) => {}
-            _ if command.info.flags.reliable => {
-                self.send_ack_packet(command).await?;
-            }
-            _ => {}
-        }
+        self.preprocess_packet(command).await?;
 
         match &command.command {
             ProtocolCommand::Connect(c) => {
@@ -311,11 +312,11 @@ impl Host {
             }
             ProtocolCommand::VerifyConnect(_) => todo!(),
             ProtocolCommand::Disconnect(_) => {
-                self.disconnect_peer(command.info.peer_id).await;
+                self.disconnect_peer(command.info.peer_id).await?;
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
-            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
-            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
+            ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command, true).await?,
+            ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command, false).await?,
             ProtocolCommand::Ack(r) => self.handle_ack(command.info.peer_id, r)?,
 
             _ => {}
@@ -323,7 +324,35 @@ impl Host {
         Ok(HostPollEvent::NoEvent)
     }
 
-    async fn forward_to_peer(&mut self, command: &Command) -> Result<()> {
+    async fn preprocess_packet(&mut self, command: &Command) -> Result<()> {
+        if let ProtocolCommand::Connect(_) = command.command {
+            return Ok(());
+        }
+
+        let peer = self.get_peer_mut(command.info.peer_id)?;
+        peer.last_msg_time = Instant::now();
+
+        match &command.command {
+            p if command.info.flags.reliable => {
+                self.send_ack_packet(command).await?;
+                if let &ProtocolCommand::SendReliable(_) = p {
+                    let peer = self.get_peer_mut(command.info.peer_id)?;
+                    let channel = peer.get_mut_channel(command.info.channel_id.into())?;
+
+                    if command.info.reliable_sequence_number
+                        != channel.incoming_reliable_sequence_number.wrapping_add(1)
+                    {
+                        return Err(ENetError::InvalidPacket());
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    async fn forward_to_peer(&mut self, command: &Command, is_reliable: bool) -> Result<()> {
         let peer = self.get_peer(command.info.peer_id)?;
 
         let data = match &command.command {
@@ -360,17 +389,20 @@ impl Host {
         let peer = self.get_peer_mut(peer_id)?;
 
         let reliable_sequence_number = if channel_id == 0xFF {
-            peer.outgoing_reliable_sequence_number += 1;
+            peer.outgoing_reliable_sequence_number =
+                peer.outgoing_reliable_sequence_number.wrapping_add(1);
             peer.outgoing_reliable_sequence_number
         } else {
             let channel = peer.get_mut_channel(channel_id)?;
 
             if flags.reliable {
                 channel.outgoing_unreliable_sequence_number = 0;
-                channel.outgoing_reliable_sequence_number += 1;
+                channel.outgoing_reliable_sequence_number =
+                    channel.outgoing_reliable_sequence_number.wrapping_add(1);
                 channel.outgoing_reliable_sequence_number
             } else {
-                channel.outgoing_unreliable_sequence_number += 1;
+                channel.outgoing_unreliable_sequence_number =
+                    channel.outgoing_unreliable_sequence_number.wrapping_add(1);
                 channel.outgoing_reliable_sequence_number = 1;
                 channel.outgoing_reliable_sequence_number
             }
