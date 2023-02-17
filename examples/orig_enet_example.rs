@@ -1,7 +1,7 @@
 use enet::{
     error::{ENetError, Result},
     host::{hostevents::HostPollEvent, Host},
-    peer::{Packet, Peer, PeerSendEvent},
+    peer::{Packet, Peer},
     protocol::PacketFlags,
 };
 use tracing_subscriber::EnvFilter;
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
             tokio::select! {
                 packet = peer_1.poll() => {
                     match packet {
-                        PeerRecvEvent::Recv(mut p) => {
+                        PeerRecvEvent::Recv(p) => {
                             send_msg(&mut peer_1, p.clone()).await;
                             send_msg(&mut peer_2, p).await;
                         }
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
                 },
                 packet = peer_2.poll() => {
                     match packet {
-                        PeerRecvEvent::Recv(mut p) => {
+                        PeerRecvEvent::Recv(p) => {
                             send_msg(&mut peer_1, p.clone()).await;
                             send_msg(&mut peer_2, p).await;
                         }
@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
     // let mut other_peers = Vec::new();
     loop {
         let event = host.poll().await?;
-        if let HostPollEvent::Connect(p) = event {
+        if let HostPollEvent::Connect(_p) = event {
             tracing::info!("Added peer");
             // other_peers.push(p);
         } else {

@@ -200,7 +200,7 @@ impl Host {
             .to_duration(&self.config.start_time.elapsed())
             .ok_or(ENetError::InvalidPacket())?;
 
-        let mut peer = self.get_peer_mut(peer_id)?;
+        let peer = self.get_peer_mut(peer_id)?;
 
         let diff = if rtt > peer.round_trip_time {
             rtt - peer.round_trip_time
@@ -447,7 +447,7 @@ impl Host {
             addr: peer.address,
             flags,
             peer_id: peer.outgoing_peer_id.into(),
-            internal_peer_id: command.info.peer_id.into(),
+            internal_peer_id: command.info.peer_id,
             channel_id: command.info.channel_id,
             session_id: 0,
             reliable_sequence_number: command.info.reliable_sequence_number,

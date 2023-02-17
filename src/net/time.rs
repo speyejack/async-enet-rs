@@ -24,7 +24,7 @@ impl PacketTime {
     }
 
     pub fn to_duration(&self, curr: &Duration) -> Option<Duration> {
-        let lower: u16 = self.0.into();
+        let lower: u16 = self.0;
         let lower = lower as u64;
         let curr_mill = curr.as_millis() as u64;
         let mut dur: u64 = curr_mill & !((!0_u16) as u64) | lower;

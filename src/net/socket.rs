@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, net::SocketAddr};
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio::{net::UdpSocket, time::Duration};
 
@@ -181,7 +181,7 @@ impl ENetSocket {
         packet_header.serialize(&mut ser)?;
         command_header.serialize(&mut ser)?;
 
-        let _val = match &p.command {
+        match &p.command {
             ProtocolCommand::Ack(l) => l.serialize(&mut ser),
             ProtocolCommand::Connect(l) => l.serialize(&mut ser),
             ProtocolCommand::VerifyConnect(l) => l.serialize(&mut ser),

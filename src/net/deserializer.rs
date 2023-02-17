@@ -191,7 +191,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
 
         visitor.visit_seq(Access {
             deserializer: self,
-            len: len.into(),
+            len,
         })
     }
 

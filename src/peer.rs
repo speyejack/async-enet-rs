@@ -2,7 +2,6 @@ mod peer_id;
 pub use peer_id::*;
 use std::{
     collections::HashMap,
-    fmt::Display,
     net::SocketAddr,
     time::{Duration, Instant},
 };
