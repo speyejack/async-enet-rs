@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::enet::ENetError;
+use crate::error::ENetError;
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub struct PeerID(pub u16);

@@ -1,11 +1,11 @@
-use crate::enet::{
+use crate::{
     channel::ChannelID,
     peer::{Peer, PeerID, PeerRecvEvent, PeerSendEvent},
     protocol::{
         Command, DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, SendReliableCommand,
         SendUnreliableCommand,
     },
-    ENetError, Result,
+    error::{ENetError, Result,}
 };
 
 use super::Host;

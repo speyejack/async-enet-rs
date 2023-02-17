@@ -1,16 +1,10 @@
-pub mod channel;
-pub mod host;
-pub mod net;
-pub mod peer;
-pub mod protocol;
-
 use serde::{de::Error as DeError, ser::Error as SerError};
 use std::num::TryFromIntError;
 use std::str::Utf8Error;
 
 use thiserror::*;
 
-use self::{
+use crate::{
     channel::ChannelID,
     host::hostevents::{HostRecvEvent, HostSendEvent},
     peer::PeerID,

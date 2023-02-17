@@ -4,14 +4,14 @@ use bytes::{Buf, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio::{net::UdpSocket, time::Duration};
 
-use crate::enet::{
+use crate::{
     protocol::{
         AcknowledgeCommand, BandwidthLimitCommand, Command, CommandInfo, ConnectCommand,
         DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, ProtocolCommandHeader,
         ProtocolHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
         SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
     },
-    ENetError, Result,
+    error::{ENetError, Result},
 };
 
 use super::{deserializer::EnetDeserializer, serializer::EnetSerializer, time::PacketTime};

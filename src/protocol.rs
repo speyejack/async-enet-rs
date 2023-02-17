@@ -2,7 +2,11 @@ use std::{net::SocketAddr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use super::{net::time::PacketTime, peer::PeerID, ENetError};
+use crate::{
+    error::{ENetError},
+    net::time::PacketTime,
+    peer::PeerID,
+};
 
 #[derive(Debug, Clone)]
 pub struct Command {

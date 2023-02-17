@@ -1,14 +1,12 @@
 use enet::{
+    error::{ENetError, Result},
     host::{hostevents::HostPollEvent, Host},
     peer::{Packet, Peer, PeerSendEvent},
     protocol::PacketFlags,
-    ENetError, Result,
 };
 use tracing_subscriber::EnvFilter;
 
-use crate::enet::{host::config::HostConfig, peer::PeerRecvEvent};
-
-mod enet;
+use enet::{host::config::HostConfig, peer::PeerRecvEvent};
 
 async fn poll_till_peer(host: &mut Host) -> Result<Peer> {
     loop {

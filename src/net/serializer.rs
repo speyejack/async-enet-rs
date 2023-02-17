@@ -1,4 +1,4 @@
-
+use bytes::{BufMut};
 use serde::{
     ser::{
         SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
@@ -7,13 +7,14 @@ use serde::{
     Serialize, Serializer,
 };
 
-use crate::enet::EncodingError;
+use crate::error::EncodingError;
 
-pub(crate) struct EnetSizer {
+pub(crate) struct EnetSerializer<B: BufMut> {
+    pub output: B,
     pub size: usize,
 }
 
-impl<'a> Serializer for &'a mut EnetSizer {
+impl<'a, B: BufMut> Serializer for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -32,73 +33,83 @@ impl<'a> Serializer for &'a mut EnetSizer {
 
     type SerializeStructVariant = Self;
 
-    fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
+    fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
+        self.output.put_u8(if v { 1 } else { 0 });
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+        self.output.put_i8(v);
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+        self.output.put_i16(v);
         self.size += 2;
         Ok(())
     }
 
-    fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+        self.output.put_i32(v);
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+        self.output.put_i64(v);
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+        self.output.put_u8(v);
         self.size += 1;
         Ok(())
     }
 
-    fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+        self.output.put_u16(v);
         self.size += 2;
         Ok(())
     }
 
-    fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+        self.output.put_u32(v);
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+        self.output.put_u64(v);
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+        self.output.put_f32(v);
         self.size += 4;
         Ok(())
     }
 
-    fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
+    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+        self.output.put_f64(v);
         self.size += 8;
         Ok(())
     }
 
-    fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
-        self.size += 1;
-        Ok(())
+    fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+        self.serialize_str(&v.to_string())
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        self.size += v.len();
-        Ok(())
+        self.serialize_bytes(v.as_bytes())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
         self.size += v.len();
+        self.output.put_slice(v);
         Ok(())
     }
 
@@ -110,7 +121,6 @@ impl<'a> Serializer for &'a mut EnetSizer {
     where
         T: serde::Serialize,
     {
-        self.size += 1;
         value.serialize(self)
     }
 
@@ -158,7 +168,9 @@ impl<'a> Serializer for &'a mut EnetSizer {
         value.serialize(&mut *self)
     }
 
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        let len: u16 = len.unwrap_or(usize::MAX).try_into()?;
+        len.serialize(&mut *self)?;
         Ok(self)
     }
 
@@ -209,7 +221,7 @@ impl<'a> Serializer for &'a mut EnetSizer {
     }
 }
 
-impl<'a> SerializeStruct for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeStruct for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -230,7 +242,7 @@ impl<'a> SerializeStruct for &'a mut EnetSizer {
     }
 }
 
-impl<'a> SerializeSeq for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeSeq for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -247,7 +259,7 @@ impl<'a> SerializeSeq for &'a mut EnetSizer {
     }
 }
 
-impl<'a> SerializeTuple for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeTuple for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -263,7 +275,7 @@ impl<'a> SerializeTuple for &'a mut EnetSizer {
         Ok(())
     }
 }
-impl<'a> SerializeTupleStruct for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeTupleStruct for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -279,7 +291,7 @@ impl<'a> SerializeTupleStruct for &'a mut EnetSizer {
         Ok(())
     }
 }
-impl<'a> SerializeTupleVariant for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeTupleVariant for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -295,7 +307,7 @@ impl<'a> SerializeTupleVariant for &'a mut EnetSizer {
         Ok(())
     }
 }
-impl<'a> SerializeMap for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeMap for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;
@@ -318,7 +330,7 @@ impl<'a> SerializeMap for &'a mut EnetSizer {
         unimplemented!()
     }
 }
-impl<'a> SerializeStructVariant for &'a mut EnetSizer {
+impl<'a, B: BufMut> SerializeStructVariant for &'a mut EnetSerializer<B> {
     type Ok = ();
 
     type Error = EncodingError;

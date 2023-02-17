@@ -13,22 +13,20 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::enet::protocol::DisconnectCommand;
-
 use self::{
     config::HostConfig,
     hostevents::{HostPollEvent, HostRecvEvent, HostSendEvent},
 };
 
-use super::{
+use crate::{
     channel::{Channel, ChannelID},
+    error::{ChannelError, ENetError, Result},
     net::{socket::ENetSocket, time::PacketTime},
     peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
-        AcknowledgeCommand, Command, CommandInfo, ConnectCommand, PacketFlags, PingCommand,
-        ProtocolCommand, VerifyConnectCommand,
+        AcknowledgeCommand, Command, CommandInfo, ConnectCommand, DisconnectCommand, PacketFlags,
+        PingCommand, ProtocolCommand, VerifyConnectCommand,
     },
-    ChannelError, ENetError, Result,
 };
 
 pub struct Host {

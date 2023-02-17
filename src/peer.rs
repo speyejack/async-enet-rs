@@ -13,7 +13,7 @@ use super::{
     channel::{Channel, ChannelID},
     host::hostevents::{HostRecvEvent, HostSendEvent},
     protocol::PacketFlags,
-    ChannelError, ENetError, Result,
+    error::{ChannelError, ENetError, Result},
 };
 
 #[derive(Debug)]

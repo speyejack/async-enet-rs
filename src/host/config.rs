@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::enet::Result;
+use crate::error::Result;
 
 #[derive(Debug)]
 pub struct HostConfig {
