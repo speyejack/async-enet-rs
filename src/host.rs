@@ -8,7 +8,7 @@ use std::{
 };
 
 use tokio::{
-    net::ToSocketAddrs,
+    net::{ToSocketAddrs, UdpSocket},
     select,
     sync::mpsc::{Receiver, Sender},
 };
@@ -45,6 +45,7 @@ pub struct Host {
 
     // Used for peer creation
     pub from_cli_tx: Sender<HostRecvEvent>,
+    pub bound_socket_addr: SocketAddr,
 }
 
 #[derive(Debug, Clone)]
@@ -67,8 +68,13 @@ impl UnAckPacket {
 }
 
 impl Host {
-    pub async fn create(config: HostConfig, addr: impl ToSocketAddrs) -> Result<Self> {
+    pub async fn create_from_address(config: HostConfig, addr: impl ToSocketAddrs) -> Result<Self> {
         let socket = tokio::net::UdpSocket::bind(addr).await?;
+        Self::create(config, socket)
+    }
+
+    pub fn create(config: HostConfig, socket: UdpSocket) -> Result<Self> {
+        let addr = socket.local_addr().unwrap();
         let random = random::default(10);
         // TODO Set flags
 
@@ -87,6 +93,7 @@ impl Host {
             receiver: from_cli_rx,
             next_peer: 0,
             unack_packets: Default::default(),
+            bound_socket_addr: addr,
         })
     }
 
@@ -110,6 +117,7 @@ impl Host {
 
         let (to_cli_tx, to_cli_rx) = tokio::sync::mpsc::channel(100);
         let peer = Peer {
+            address: addr,
             id: peer_id,
             out_channel: self.from_cli_tx.clone(),
             in_channel: to_cli_rx,
@@ -550,5 +558,9 @@ impl Host {
         self.peers
             .get(&peer_id)
             .ok_or(ENetError::InvalidPeerId(peer_id))
+    }
+
+    pub fn get_bind_address(&self) -> SocketAddr {
+        self.bound_socket_addr
     }
 }

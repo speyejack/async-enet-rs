@@ -10,9 +10,9 @@ use tokio::sync::mpsc::Sender;
 
 use super::{
     channel::{Channel, ChannelID},
+    error::{ChannelError, ENetError, Result},
     host::hostevents::{HostRecvEvent, HostSendEvent},
     protocol::PacketFlags,
-    error::{ChannelError, ENetError, Result},
 };
 
 #[derive(Debug)]
@@ -50,6 +50,7 @@ pub struct PeerInfo {
 #[derive(Debug)]
 pub struct Peer {
     pub(crate) id: PeerID,
+    pub(crate) address: SocketAddr,
 
     pub(crate) out_channel: tokio::sync::mpsc::Sender<HostRecvEvent>,
     pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
@@ -84,6 +85,20 @@ impl Peer {
             None => PeerRecvEvent::Disconnect,
             Some(e) => e.event,
         }
+    }
+
+    pub async fn disconnect(self) {
+        self.out_channel
+            .send(HostRecvEvent {
+                event: PeerSendEvent::Disconnect,
+                peer_id: self.id,
+                channel_id: 0xFF,
+            })
+            .await;
+    }
+
+    pub fn get_address(&self) -> SocketAddr {
+        self.address
     }
 }
 
