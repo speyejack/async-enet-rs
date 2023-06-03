@@ -143,7 +143,7 @@ impl Host {
             packet_throttle_deceleration: connect.packet_throttle_deceleration,
             event_data: connect.data,
             sender: to_cli_tx,
-            incoming_reliable_sequence_number: 1,
+            incoming_reliable_sequence_number: 0,
             outgoing_reliable_sequence_number: 0,
             window_size,
             mtu,
@@ -357,11 +357,29 @@ impl Host {
                     let peer = self.get_peer_mut(command.info.peer_id)?;
                     let channel = peer.get_mut_channel(command.info.channel_id.into())?;
 
-                    if command.info.reliable_sequence_number
-                        != channel.incoming_reliable_sequence_number.wrapping_add(1)
-                    {
+                    let sequence_num = if command.info.channel_id == 0xff {
+                        tracing::debug!("Using peer seq num");
+                        &mut peer.incoming_reliable_sequence_number
+                    } else {
+                        tracing::debug!("Using peer seq num");
+                        &mut channel.incoming_reliable_sequence_number
+                    };
+                    let next_seq = sequence_num.wrapping_add(1);
+                    let recv_seq = command.info.reliable_sequence_number;
+
+                    if recv_seq != next_seq {
+                        tracing::debug!(
+                            "Invalid reliable sequence number: Recieved {} != Expected {}",
+                            recv_seq,
+                            next_seq
+                        );
+
+                        // TODO Remove this as an error, and make just a small warning
                         return Err(ENetError::InvalidPacket());
                     }
+
+                    // TODO Determine if peer seq num can be merged
+                    *sequence_num = next_seq;
                 }
             }
             _ => {}
