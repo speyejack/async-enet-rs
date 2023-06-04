@@ -352,40 +352,57 @@ impl Host {
         let peer = self.get_peer_mut(command.info.peer_id)?;
         peer.last_msg_time = Instant::now();
 
-        match &command.command {
-            p if command.info.flags.reliable => {
-                self.send_ack_packet(command).await?;
-                if let &ProtocolCommand::SendReliable(_) = p {
+        if command.info.flags.reliable {
+            self.send_ack_packet(command).await?;
+        }
+
+        'seq_number: {
+            let (current_seq, recv_seq) = match &command.command {
+                ProtocolCommand::SendReliable(_) if command.info.channel_id == 0xff => {
+                    let peer = self.get_peer_mut(command.info.peer_id)?;
+
+                    let sequence_num = &mut peer.incoming_reliable_sequence_number;
+                    let recv_seq = command.info.reliable_sequence_number;
+                    (sequence_num, recv_seq)
+                }
+
+                ProtocolCommand::SendReliable(_) => {
                     let peer = self.get_peer_mut(command.info.peer_id)?;
                     let channel = peer.get_mut_channel(command.info.channel_id.into())?;
 
-                    let sequence_num = if command.info.channel_id == 0xff {
-                        tracing::debug!("Using peer seq num");
-                        &mut peer.incoming_reliable_sequence_number
-                    } else {
-                        tracing::debug!("Using peer seq num");
-                        &mut channel.incoming_reliable_sequence_number
-                    };
-                    let next_seq = sequence_num.wrapping_add(1);
+                    let sequence_num = &mut channel.incoming_reliable_sequence_number;
                     let recv_seq = command.info.reliable_sequence_number;
 
-                    if recv_seq != next_seq {
-                        tracing::debug!(
-                            "Invalid reliable sequence number: Recieved {} != Expected {}",
-                            recv_seq,
-                            next_seq
-                        );
-
-                        // TODO Remove this as an error, and make just a small warning
-                        return Err(ENetError::InvalidPacket());
-                    }
-
-                    // TODO Determine if peer seq num can be merged
-                    *sequence_num = next_seq;
+                    (sequence_num, recv_seq)
                 }
+
+                ProtocolCommand::SendUnreliable(p) => {
+                    let peer = self.get_peer_mut(command.info.peer_id)?;
+                    let channel = peer.get_mut_channel(command.info.channel_id.into())?;
+
+                    let sequence_num = &mut channel.incoming_unreliable_sequence_number;
+                    let recv_seq = p.unreliable_sequence_number;
+                    (sequence_num, recv_seq)
+                }
+                _ => break 'seq_number,
+            };
+
+            let next_seq = current_seq.wrapping_add(1);
+
+            if recv_seq != next_seq {
+                tracing::debug!(
+                    "Invalid sequence number: Recieved {} != Expected {}",
+                    recv_seq,
+                    next_seq
+                );
+
+                // TODO Remove this as an error, and make just a small warning
+                return Err(ENetError::InvalidPacket());
             }
-            _ => {}
-        }
+
+            // TODO Determine if peer seq num can be merged
+            *current_seq = next_seq;
+        };
 
         Ok(())
     }
