@@ -337,7 +337,9 @@ impl Host {
                 self.handle_ack(command.info.peer_id, command.info.channel_id.into(), r)?
             }
 
-            _ => {}
+            _ => {
+                tracing::warn!("Received unused protocol command");
+            }
         }
         Ok(HostPollEvent::NoEvent)
     }
@@ -521,7 +523,6 @@ impl Host {
             .map(|(k, _)| *k)
             .collect();
 
-        tracing::trace!("Pinging to update peers {:?}", update_peers);
         for peer_id in update_peers {
             let peer = self.get_peer_mut(peer_id)?;
 
