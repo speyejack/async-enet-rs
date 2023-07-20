@@ -4,6 +4,7 @@ pub mod hostevents;
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    str::FromStr,
     time::{Duration, Instant},
 };
 
@@ -21,7 +22,10 @@ use self::{
 use crate::{
     channel::{Channel, ChannelID},
     error::{ChannelError, ENetError, Result},
-    net::{socket::ENetSocket, time::PacketTime},
+    net::{
+        socket::{ENetSocket, Socket},
+        time::PacketTime,
+    },
     peer::{Packet, Peer, PeerID, PeerInfo, PeerRecvEvent},
     protocol::{
         AcknowledgeCommand, Command, CommandInfo, ConnectCommand, DisconnectCommand, PacketFlags,
@@ -29,8 +33,8 @@ use crate::{
     },
 };
 
-pub struct Host {
-    pub socket: ENetSocket,
+pub struct Host<S: Socket = ENetSocket> {
+    pub socket: S,
     pub peers: HashMap<PeerID, PeerInfo>,
     pub config: HostConfig,
 
@@ -69,12 +73,13 @@ impl UnAckPacket {
 
 impl Host {
     pub async fn create_from_address(config: HostConfig, addr: impl ToSocketAddrs) -> Result<Self> {
-        let socket = tokio::net::UdpSocket::bind(addr).await?;
-        Self::create(config, socket)
+        let socket: UdpSocket = tokio::net::UdpSocket::bind(addr).await?;
+        Host::<ENetSocket>::create::<ENetSocket>(config, socket)
     }
 
-    pub fn create(config: HostConfig, socket: UdpSocket) -> Result<Self> {
-        let addr = socket.local_addr().unwrap();
+    pub fn create<S: Socket>(config: HostConfig, socket: impl Into<S>) -> Result<Host<S>> {
+        // let addr = socket.local_addr().unwrap();
+        let addr = SocketAddr::from_str("127.0.0.1:8080").unwrap();
         let random = random::default(10);
         // TODO Set flags
 
@@ -85,7 +90,7 @@ impl Host {
         let (from_cli_tx, from_cli_rx) = tokio::sync::mpsc::channel(100);
 
         Ok(Host {
-            socket: ENetSocket::new(socket),
+            socket: socket.into(),
             peers,
             config,
             random,
@@ -239,7 +244,7 @@ impl Host {
 
     pub async fn poll(&mut self) -> Result<HostPollEvent> {
         loop {
-            let event = self.poll_for_event().await;
+            let event = self.poll_for_event(self.config.poll_duration).await;
             match event {
                 Ok(HostPollEvent::NoEvent) => {}
                 Ok(event) => return Ok(event),
@@ -248,7 +253,7 @@ impl Host {
         }
     }
 
-    pub async fn poll_for_event(&mut self) -> Result<HostPollEvent> {
+    pub async fn poll_for_event(&mut self, poll_time: Duration) -> Result<HostPollEvent> {
         // Receive messages and pass them off
         // Send messages
         // Resend any messages that havent been resent again
@@ -271,7 +276,7 @@ impl Host {
                 }
 
             }
-            _sleep = tokio::time::sleep(Duration::from_secs(1)) => {
+            _sleep = tokio::time::sleep(poll_time) => {
                 Ok(HostPollEvent::NoEvent)
             }
         }
@@ -314,7 +319,9 @@ impl Host {
     }
 
     async fn handle_incoming_command(&mut self, command: &Command) -> Result<HostPollEvent> {
+        tracing::trace!("Handling incoming command: {command:?}");
         self.preprocess_packet(command).await?;
+        tracing::trace!("Continuing packet");
 
         match &command.command {
             ProtocolCommand::Connect(c) => {
@@ -331,14 +338,21 @@ impl Host {
                 self.disconnect_peer(command.info.peer_id).await?;
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
+            ProtocolCommand::BandwidthLimit(b) => {
+                let mut peer = self.get_peer_mut(command.info.peer_id)?;
+                peer.incoming_bandwidth = b.incoming_bandwidth;
+                peer.outgoing_bandwidth = b.outgoing_bandwidth;
+                // TODO Handle window calculations
+            }
             ProtocolCommand::SendReliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::SendUnreliable(_r) => self.forward_to_peer(command).await?,
             ProtocolCommand::Ack(r) => {
                 self.handle_ack(command.info.peer_id, command.info.channel_id.into(), r)?
             }
+            ProtocolCommand::Ping(_) => {}
 
             _ => {
-                tracing::warn!("Received unused protocol command");
+                tracing::warn!("Received unused protocol command: {:?}", command.command);
             }
         }
         Ok(HostPollEvent::NoEvent)
@@ -391,7 +405,7 @@ impl Host {
 
             if recv_seq != next_seq {
                 tracing::debug!(
-                    "Invalid sequence number: Recieved {} != Expected {}",
+                    "Invalid sequence number: Received {} != Expected {}",
                     recv_seq,
                     next_seq
                 );

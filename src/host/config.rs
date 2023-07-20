@@ -11,6 +11,7 @@ pub struct HostConfig {
     pub start_time: Instant,
     pub retry_count: usize,
     pub packet_timeout: Duration,
+    pub poll_duration: Duration,
     pub ping_interval: Duration,
 }
 
@@ -18,6 +19,7 @@ impl HostConfig {
     pub fn new(peer_count: usize) -> Result<Self> {
         Ok(HostConfig {
             peer_count,
+            poll_duration: Duration::from_secs(1),
             channel_limit: None,
             incoming_bandwidth: None,
             outgoing_bandwidth: None,

@@ -1,26 +1,59 @@
 use std::{collections::VecDeque, net::SocketAddr};
 
+use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio::{net::UdpSocket, time::Duration};
 
 use crate::{
+    error::{ENetError, Result},
     protocol::{
         AcknowledgeCommand, BandwidthLimitCommand, Command, CommandInfo, ConnectCommand,
         DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, ProtocolCommandHeader,
         ProtocolHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
         SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
     },
-    error::{ENetError, Result},
 };
 
 use super::{deserializer::EnetDeserializer, serializer::EnetSerializer, time::PacketTime};
+
+#[async_trait]
+pub trait Socket {
+    async fn recv(&mut self) -> Result<Command>;
+    async fn send(&mut self, command: &Command) -> Result<()>;
+}
 
 #[derive(Debug)]
 pub struct ENetSocket {
     pub socket: UdpSocket,
     buf: [u8; 100],
     incoming_queue: VecDeque<Command>,
+}
+
+#[async_trait]
+impl Socket for ENetSocket {
+    async fn recv(&mut self) -> Result<Command> {
+        if let Some(c) = self.incoming_queue.pop_front() {
+            return Ok(c);
+        }
+        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
+        self.deserialize_command(addr, len)
+    }
+
+    async fn send(&mut self, command: &Command) -> Result<()> {
+        let addr = command.info.addr;
+        let (bytes, size) = self.serialize_command(command)?;
+
+        let bytes = &bytes[0..size];
+        self.socket.send_to(bytes, addr).await?;
+        Ok(())
+    }
+}
+
+impl From<UdpSocket> for ENetSocket {
+    fn from(value: UdpSocket) -> Self {
+        Self::new(value)
+    }
 }
 
 impl ENetSocket {
@@ -30,14 +63,6 @@ impl ENetSocket {
             buf: [0; 100],
             incoming_queue: Default::default(),
         }
-    }
-
-    pub async fn recv(&mut self) -> Result<Command> {
-        if let Some(c) = self.incoming_queue.pop_front() {
-            return Ok(c);
-        }
-        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
-        self.deserialize_command(addr, len)
     }
 
     fn deserialize_command(&mut self, addr: SocketAddr, len: usize) -> Result<Command> {
@@ -117,15 +142,6 @@ impl ENetSocket {
         }
 
         Ok(self.incoming_queue.pop_front().unwrap())
-    }
-
-    pub async fn send(&mut self, command: &Command) -> Result<()> {
-        let addr = command.info.addr;
-        let (bytes, size) = self.serialize_command(command)?;
-
-        let bytes = &bytes[0..size];
-        self.socket.send_to(bytes, addr).await?;
-        Ok(())
     }
 
     fn serialize_command(&self, p: &Command) -> Result<(Bytes, usize)> {
