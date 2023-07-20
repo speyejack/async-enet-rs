@@ -228,37 +228,31 @@ async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::
 
         println!("[client] event: {:#?}", e);
 
-        match &e {
-            Event::Connect(p) => {
-                let new_p = p.clone();
-                drop(p);
-                break new_p;
-                // break;
+        match e {
+            Event::Connect(ref p) => {
+                // let new_p = p.clone();
+                // drop(p);
+                // break new_p;
+                break p.clone();
             }
-            _ => {} // Event::Disconnect(p, r) => {
-                    //     println!("connection NOT successful, peer: {:?}, reason: {}", p, r);
-                    //     panic!("Connection failed");
-                    // }
-                    // Event::Receive { .. } => {
-                    //     anyhow::bail!("unexpected Receive-event while waiting for connection")
-                    // }
+            _ => {}
         };
         drop(e);
     };
-    println!("Client connected");
     drop(cli_peer);
-
-    // send a "hello"-like packet
+    println!("Client connected");
 
     for data in packets {
         match &data {
             Data::Orig(v) => {
+                let mut cli_peer = cli_host.peers().next().unwrap();
                 cli_peer
                     .send_packet(
                         orig_enet::Packet::new(&v, PacketMode::ReliableSequenced).unwrap(),
                         1,
                     )
                     .context("sending packet failed")?;
+                drop(cli_peer);
             }
             Data::Rewrite(v) => {
                 let packet = Packet {
@@ -271,122 +265,48 @@ async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::
             }
         }
 
-        let recv = recv_packet(
-            &mut serv_host,
-            &mut serv_peer,
-            &mut cli_host,
-            // &mut cli_peer,
-            dur,
-        )
-        .await?;
+        let mut found_value = None;
+        'recv_loop: for _ in 0..10 {
+            select! {
+                e = serv_host.poll() => {
+                    println!("Host event: {e:?}");
+                },
+                e = serv_peer.poll() => {
+                    if let PeerRecvEvent::Recv(p) = &e {
+                        found_value = Some(Data::Rewrite(p.data.clone()));
+                        break 'recv_loop
+                    }
+                    println!("Peer event: {e:?}");
+                },
+                _sleep = tokio::time::sleep(Duration::from_millis(1)) => {
+                }
+            }
 
-        let not_recv = !recv;
-        if data != not_recv {
-            bail!("{data:?} != {not_recv:?}")
+            let cli_event = cli_host.service(dur.as_millis() as u32).ok().flatten();
+            if let Some(e) = cli_event {
+                match &e {
+                    Event::Receive {
+                        sender,
+                        channel_id,
+                        packet,
+                    } => {
+                        found_value = Some(Data::Orig(packet.data().to_vec()));
+                        break 'recv_loop;
+                    }
+                    _ => bail!("Unexpected orig enet packet"),
+                }
+            }
+        }
+
+        let expected = data.clone().not();
+        match found_value {
+            Some(recv) if expected == recv => {}
+            _ => {
+                bail!("Test: {data:?}, {:?} != {found_value:?}", Some(expected))
+            }
         }
     }
-
-    // for data in packets {
-    //     match data {
-    //         Data::Orig(v) => {
-    //             cli_peer
-    //                 .send_packet(
-    //                     orig_enet::Packet::new(&v, PacketMode::ReliableSequenced).unwrap(),
-    //                     1,
-    //                 )
-    //                 .context("sending packet failed")?;
-
-    //             let recv = recv_packet(
-    //                 &mut serv_host,
-    //                 &mut serv_peer,
-    //                 &mut cli_host,
-    //                 &mut cli_peer,
-    //                 dur,
-    //             )
-    //             .await?;
-    //             match recv {
-    //                 Data::Orig(nv) => {
-    //                     bail!("Original enet recv packet when rewrite was expected");
-    //                 }
-    //                 Data::Rewrite(nv) => {
-    //                     if v != nv {
-    //                         bail!("Data difference: Orig {v:?} != Rewrite {nv:?}");
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         Data::Rewrite(v) => {
-    //             let packet = Packet {
-    //                 data: v.clone(),
-    //                 channel: 0,
-    //                 flags: PacketFlags::default(),
-    //             };
-
-    //             serv_peer.send(packet);
-
-    //             let recv = recv_packet(
-    //                 &mut serv_host,
-    //                 &mut serv_peer,
-    //                 &mut cli_host,
-    //                 &mut cli_peer,
-    //                 dur,
-    //             )
-    //             .await?;
-    //             match recv {
-    //                 Data::Rewrite(nv) => {
-    //                     bail!("Rewrite recv packet when original enet was expected");
-    //                 }
-    //                 Data::Orig(nv) => {
-    //                     if v != nv {
-    //                         bail!("Data difference: Rewrite {v:?} != Orig {nv:?}");
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    // // dbg!(&mut cli_host.service(100).unwrap());
-
-    // serv_peer.send(packet).await?;
 
     println!("Sending packet");
     Ok(())
-}
-
-async fn recv_packet<'a>(
-    serv_host: &mut Host,
-    serv_peer: &mut Peer,
-    cli_host: &'a mut orig_enet::Host<()>,
-    // cli_peer: &mut orig_enet::Peer<'a, ()>,
-    dur: Duration,
-) -> Result<Data, anyhow::Error> {
-    for _ in 0..10 {
-        select! {
-            e = serv_host.poll() => {
-                println!("Host event: {e:?}");
-            },
-            e = serv_peer.poll() => {
-                if let PeerRecvEvent::Recv(p) = &e {
-                    return Ok(Data::Rewrite(p.data.clone()))
-                }
-                println!("Peer event: {e:?}");
-            },
-            _sleep = tokio::time::sleep(Duration::from_millis(1)) => {
-            }
-        }
-
-        let cli_event = cli_host.service(dur.as_millis() as u32).ok().flatten();
-        if let Some(e) = cli_event {
-            match &e {
-                Event::Receive {
-                    sender,
-                    channel_id,
-                    packet,
-                } => return Ok(Data::Orig(packet.data().to_vec())),
-                _ => bail!("Unexpected orig enet packet"),
-            }
-        }
-    }
-
-    bail!("Didnt receive expected packet")
 }
