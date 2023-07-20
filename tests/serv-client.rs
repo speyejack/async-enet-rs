@@ -1,17 +1,18 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
+    ops::Not,
     time::Duration,
 };
 
 use anyhow::{bail, Context};
 use enet::{
     host::{config::HostConfig, hostevents::HostPollEvent, Host},
-    peer::{Packet, PeerRecvEvent},
+    peer::{Packet, Peer, PeerRecvEvent},
     protocol::PacketFlags,
 };
 use once_cell::sync::OnceCell;
 use orig_enet::*;
-use quickcheck::quickcheck;
+use quickcheck::Arbitrary;
 use tokio::{select, sync::Mutex};
 
 static TEST_MUTEX: OnceCell<Mutex<()>> = OnceCell::new();
@@ -137,8 +138,46 @@ async fn server_cli_single_packet() -> Result<(), anyhow::Error> {
     bail!("Didnt receive expected packet")
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum Data {
+    Orig(Vec<u8>),
+    Rewrite(Vec<u8>),
+}
+
+impl Data {
+    pub fn data(&self) -> &[u8] {
+        match self {
+            Data::Orig(v) => v,
+            Data::Rewrite(v) => v,
+        }
+    }
+}
+
+impl Not for Data {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Data::Orig(v) => Data::Rewrite(v),
+            Data::Rewrite(v) => Data::Rewrite(v),
+        }
+    }
+}
+
+impl Arbitrary for Data {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let out = g.choose(&[0, 1]).unwrap();
+        let data: Vec<u8> = Arbitrary::arbitrary(g);
+        match out {
+            0 => Data::Orig(data),
+            1 => Data::Rewrite(data),
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[quickcheck_async::tokio]
-async fn server_cli_quickcheck_packet() -> Result<(), anyhow::Error> {
+async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::Error> {
     println!("Starting test");
     let _guard = TEST_MUTEX.get_or_init(|| Mutex::new(())).lock().await;
     println!("Got guard");
@@ -189,41 +228,138 @@ async fn server_cli_quickcheck_packet() -> Result<(), anyhow::Error> {
 
         println!("[client] event: {:#?}", e);
 
-        match e {
-            Event::Connect(ref p) => {
-                break p.clone();
+        match &e {
+            Event::Connect(p) => {
+                let new_p = p.clone();
+                drop(p);
+                break new_p;
                 // break;
             }
-            Event::Disconnect(ref p, r) => {
-                println!("connection NOT successful, peer: {:?}, reason: {}", p, r);
-                panic!("Connection failed");
-            }
-            Event::Receive { .. } => {
-                anyhow::bail!("unexpected Receive-event while waiting for connection")
-            }
+            _ => {} // Event::Disconnect(p, r) => {
+                    //     println!("connection NOT successful, peer: {:?}, reason: {}", p, r);
+                    //     panic!("Connection failed");
+                    // }
+                    // Event::Receive { .. } => {
+                    //     anyhow::bail!("unexpected Receive-event while waiting for connection")
+                    // }
         };
+        drop(e);
     };
     println!("Client connected");
+    drop(cli_peer);
 
     // send a "hello"-like packet
-    cli_peer
-        .send_packet(
-            orig_enet::Packet::new(b"hello", PacketMode::ReliableSequenced).unwrap(),
-            1,
-        )
-        .context("sending packet failed")?;
 
+    for data in packets {
+        match &data {
+            Data::Orig(v) => {
+                cli_peer
+                    .send_packet(
+                        orig_enet::Packet::new(&v, PacketMode::ReliableSequenced).unwrap(),
+                        1,
+                    )
+                    .context("sending packet failed")?;
+            }
+            Data::Rewrite(v) => {
+                let packet = Packet {
+                    data: v.clone(),
+                    channel: 0,
+                    flags: PacketFlags::default(),
+                };
+
+                serv_peer.send(packet);
+            }
+        }
+
+        let recv = recv_packet(
+            &mut serv_host,
+            &mut serv_peer,
+            &mut cli_host,
+            // &mut cli_peer,
+            dur,
+        )
+        .await?;
+
+        let not_recv = !recv;
+        if data != not_recv {
+            bail!("{data:?} != {not_recv:?}")
+        }
+    }
+
+    // for data in packets {
+    //     match data {
+    //         Data::Orig(v) => {
+    //             cli_peer
+    //                 .send_packet(
+    //                     orig_enet::Packet::new(&v, PacketMode::ReliableSequenced).unwrap(),
+    //                     1,
+    //                 )
+    //                 .context("sending packet failed")?;
+
+    //             let recv = recv_packet(
+    //                 &mut serv_host,
+    //                 &mut serv_peer,
+    //                 &mut cli_host,
+    //                 &mut cli_peer,
+    //                 dur,
+    //             )
+    //             .await?;
+    //             match recv {
+    //                 Data::Orig(nv) => {
+    //                     bail!("Original enet recv packet when rewrite was expected");
+    //                 }
+    //                 Data::Rewrite(nv) => {
+    //                     if v != nv {
+    //                         bail!("Data difference: Orig {v:?} != Rewrite {nv:?}");
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         Data::Rewrite(v) => {
+    //             let packet = Packet {
+    //                 data: v.clone(),
+    //                 channel: 0,
+    //                 flags: PacketFlags::default(),
+    //             };
+
+    //             serv_peer.send(packet);
+
+    //             let recv = recv_packet(
+    //                 &mut serv_host,
+    //                 &mut serv_peer,
+    //                 &mut cli_host,
+    //                 &mut cli_peer,
+    //                 dur,
+    //             )
+    //             .await?;
+    //             match recv {
+    //                 Data::Rewrite(nv) => {
+    //                     bail!("Rewrite recv packet when original enet was expected");
+    //                 }
+    //                 Data::Orig(nv) => {
+    //                     if v != nv {
+    //                         bail!("Data difference: Rewrite {v:?} != Orig {nv:?}");
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
     // // dbg!(&mut cli_host.service(100).unwrap());
-    // let mut packet = Packet {
-    //     data: "hello".as_bytes().to_vec(),
-    //     channel: 0,
-    //     flags: PacketFlags::default(),
-    // };
-    // packet.data.push(0);
 
     // serv_peer.send(packet).await?;
-    println!("Sending packet");
 
+    println!("Sending packet");
+    Ok(())
+}
+
+async fn recv_packet<'a>(
+    serv_host: &mut Host,
+    serv_peer: &mut Peer,
+    cli_host: &'a mut orig_enet::Host<()>,
+    // cli_peer: &mut orig_enet::Peer<'a, ()>,
+    dur: Duration,
+) -> Result<Data, anyhow::Error> {
     for _ in 0..10 {
         select! {
             e = serv_host.poll() => {
@@ -231,10 +367,7 @@ async fn server_cli_quickcheck_packet() -> Result<(), anyhow::Error> {
             },
             e = serv_peer.poll() => {
                 if let PeerRecvEvent::Recv(p) = &e {
-                    if p.data == [104, 101, 108, 108, 111] {
-                        println!("Got expected data");
-                        return Ok(())
-                    }
+                    return Ok(Data::Rewrite(p.data.clone()))
                 }
                 println!("Peer event: {e:?}");
             },
@@ -244,16 +377,16 @@ async fn server_cli_quickcheck_packet() -> Result<(), anyhow::Error> {
 
         let cli_event = cli_host.service(dur.as_millis() as u32).ok().flatten();
         if let Some(e) = cli_event {
-            dbg!(e);
+            match &e {
+                Event::Receive {
+                    sender,
+                    channel_id,
+                    packet,
+                } => return Ok(Data::Orig(packet.data().to_vec())),
+                _ => bail!("Unexpected orig enet packet"),
+            }
         }
     }
 
-    // disconnect after all outgoing packets have been sent.
-    // cli_peer.disconnect_later(5);
-
-    // loop {
-    //     let e = cli_host.service(1000).context("service failed")?;
-    //     println!("received event: {:#?}", e);
-    // }
     bail!("Didnt receive expected packet")
 }
