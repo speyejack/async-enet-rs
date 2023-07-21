@@ -159,7 +159,7 @@ impl Not for Data {
     fn not(self) -> Self::Output {
         match self {
             Data::Orig(v) => Data::Rewrite(v),
-            Data::Rewrite(v) => Data::Rewrite(v),
+            Data::Rewrite(v) => Data::Orig(v),
         }
     }
 }
