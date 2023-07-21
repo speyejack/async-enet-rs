@@ -276,7 +276,7 @@ async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::
                     flags: PacketFlags::default(),
                 };
 
-                serv_peer.send(packet);
+                serv_peer.send(packet).await?;
             }
         }
 
