@@ -150,6 +150,9 @@ async fn server_cli_packets(packets: Vec<Data>) -> Result<(), anyhow::Error> {
                         found_value = Some(Data::Orig(packet.data().to_vec()));
                         break 'recv_loop;
                     }
+                    Event::Disconnect(_, _) => {
+                        tracing::warn!("Disconnect happened {e:?}");
+                    }
                     _ => bail!("Unexpected orig enet packet {e:?}"),
                 }
             }
