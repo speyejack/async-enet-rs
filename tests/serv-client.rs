@@ -174,6 +174,21 @@ impl Arbitrary for Data {
             _ => unreachable!(),
         }
     }
+
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        match *self {
+            Data::Orig(ref x) => {
+                let xs = x.shrink();
+                let tagged = xs.map(Data::Orig);
+                Box::new(tagged)
+            }
+            Data::Rewrite(ref x) => {
+                let xs = x.shrink();
+                let tagged = xs.map(Data::Orig);
+                Box::new(tagged)
+            }
+        }
+    }
 }
 
 #[quickcheck_async::tokio]
