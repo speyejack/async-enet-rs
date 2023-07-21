@@ -27,10 +27,16 @@ impl PacketTime {
         let lower: u16 = self.0;
         let lower = lower as u64;
         let curr_mill = curr.as_millis() as u64;
-        let mut dur: u64 = curr_mill & !((!0_u16) as u64) | lower;
+        let curr_mill = curr_mill & 0xFFFF0000;
+        let mut dur: u64 = curr_mill | lower;
+
         if (dur & 0x8000) > (curr_mill & 0x8000) {
+            if dur < 0x10000 {
+                return None;
+            }
             dur -= 0x10000;
         }
+
         let dur = Duration::from_millis(dur);
         if &dur > curr {
             return None;
