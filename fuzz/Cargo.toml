@@ -1,0 +1,40 @@
+[package]
+name = "async-enet-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tokio = { version = "1.25.0", features = ["net", "time", "full"] }
+tracing-subscriber = { version = "0.3.16", features = ["std", "env-filter", "fmt"] }
+tracing = "0.1.37"
+arbitrary = {version = "1", features=["derive"]}
+orig-enet = {version = "0.3", package = "enet"}
+anyhow = "1"
+once_cell = "1.18.0"
+
+[dependencies.async-enet]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "orig_cli_rewrite_serv"
+path = "fuzz_targets/orig_cli_rewrite_serv.rs"
+test = false
+doc = false
