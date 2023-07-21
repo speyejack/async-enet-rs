@@ -24,15 +24,6 @@ enum Data {
     Rewrite(Vec<u8>),
 }
 
-impl Data {
-    pub fn data(&self) -> &[u8] {
-        match self {
-            Data::Orig(v) => v,
-            Data::Rewrite(v) => v,
-        }
-    }
-}
-
 impl Not for Data {
     type Output = Self;
 
@@ -85,7 +76,7 @@ async fn server_cli_packets(packets: Vec<Data>) -> Result<(), anyhow::Error> {
 
     tracing::info!("Cli polling");
 
-    let mut cli_peer = loop {
+    let _cli_peer = loop {
         let e = cli_host.service(100).context("service failed")?;
 
         let e = match e {
@@ -106,7 +97,6 @@ async fn server_cli_packets(packets: Vec<Data>) -> Result<(), anyhow::Error> {
         };
         drop(e);
     };
-    drop(cli_peer);
     tracing::info!("Client connected");
 
     for data in packets {
