@@ -301,8 +301,8 @@ async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::
             if let Some(e) = cli_event {
                 match &e {
                     Event::Receive {
-                        sender,
-                        channel_id,
+                        sender: _,
+                        channel_id: _,
                         packet,
                     } => {
                         found_value = Some(Data::Orig(packet.data().to_vec()));
@@ -322,6 +322,5 @@ async fn server_cli_quickcheck_packet(packets: Vec<Data>) -> Result<(), anyhow::
         }
     }
 
-    println!("Sending packet");
     Ok(())
 }
