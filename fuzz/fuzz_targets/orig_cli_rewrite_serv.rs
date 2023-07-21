@@ -66,7 +66,7 @@ async fn server_cli_packets(packets: Vec<Data>) -> Result<(), anyhow::Error> {
 
     tracing::info!("Starting to poll");
     cli_host.service(100).context("service failed")?;
-    let dur = Duration::from_millis(100);
+    let dur = Duration::from_millis(1);
 
     let serv_peer = serv_host.poll_for_event(dur).await?;
     let mut serv_peer = match serv_peer {
