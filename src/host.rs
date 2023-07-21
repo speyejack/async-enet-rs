@@ -133,7 +133,7 @@ impl Host {
             .map(|x| (x, Channel::default()))
             .collect();
 
-        let mut peer_info = self.peers.entry(peer_id).or_insert(PeerInfo {
+        let peer_info = self.peers.entry(peer_id).or_insert(PeerInfo {
             outgoing_peer_id: connect.outgoing_peer_id.into(),
             incoming_peer_id: peer_id,
             connect_id: connect.connect_id,
@@ -146,12 +146,12 @@ impl Host {
             packet_throttle_interval: connect.packet_throttle_interval,
             packet_throttle_acceleration: connect.packet_throttle_acceleration,
             packet_throttle_deceleration: connect.packet_throttle_deceleration,
-            event_data: connect.data,
+            _event_data: connect.data,
             sender: to_cli_tx,
             incoming_reliable_sequence_number: 0,
             outgoing_reliable_sequence_number: 0,
-            window_size,
-            mtu,
+            _window_size: window_size,
+            _mtu: mtu,
             last_msg_time: Instant::now(),
             round_trip_time: Duration::from_millis(500),
             round_trip_time_variance: Duration::ZERO,
@@ -304,7 +304,7 @@ impl Host {
                 .sender
                 .send(HostSendEvent {
                     event: PeerRecvEvent::Disconnect,
-                    channel_id: 0xFF,
+                    _channel_id: 0xFF,
                 })
                 .await;
             return Ok(peer);
@@ -339,7 +339,7 @@ impl Host {
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
             ProtocolCommand::BandwidthLimit(b) => {
-                let mut peer = self.get_peer_mut(command.info.peer_id)?;
+                let peer = self.get_peer_mut(command.info.peer_id)?;
                 peer.incoming_bandwidth = b.incoming_bandwidth;
                 peer.outgoing_bandwidth = b.outgoing_bandwidth;
                 // TODO Handle window calculations
@@ -440,7 +440,7 @@ impl Host {
             .sender
             .send(HostSendEvent {
                 event: PeerRecvEvent::Recv(packet),
-                channel_id: command.info.channel_id.into(),
+                _channel_id: command.info.channel_id.into(),
             })
             .await;
 

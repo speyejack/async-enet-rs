@@ -33,10 +33,10 @@ pub struct PeerInfo {
     pub(crate) packet_throttle_acceleration: u32,
     pub(crate) packet_throttle_deceleration: u32,
 
-    pub(crate) mtu: u32,
-    pub(crate) window_size: u32,
+    pub(crate) _mtu: u32,
+    pub(crate) _window_size: u32,
 
-    pub(crate) event_data: u32,
+    pub(crate) _event_data: u32,
 
     pub(crate) outgoing_reliable_sequence_number: u16,
     pub(crate) incoming_reliable_sequence_number: u16,
@@ -88,7 +88,8 @@ impl Peer {
     }
 
     pub async fn disconnect(self) {
-        self.out_channel
+        let _result = self
+            .out_channel
             .send(HostRecvEvent {
                 event: PeerSendEvent::Disconnect,
                 peer_id: self.id,

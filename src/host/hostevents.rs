@@ -1,11 +1,11 @@
 use crate::{
     channel::ChannelID,
+    error::{ENetError, Result},
     peer::{Peer, PeerID, PeerRecvEvent, PeerSendEvent},
     protocol::{
         Command, DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, SendReliableCommand,
         SendUnreliableCommand,
     },
-    error::{ENetError, Result,}
 };
 
 use super::Host;
@@ -20,7 +20,7 @@ pub enum HostPollEvent {
 #[derive(Debug)]
 pub struct HostSendEvent {
     pub(crate) event: PeerRecvEvent,
-    pub(crate) channel_id: ChannelID,
+    pub(crate) _channel_id: ChannelID,
 }
 
 #[derive(Debug, Clone)]
