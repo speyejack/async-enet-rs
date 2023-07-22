@@ -2,11 +2,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::{ENetError},
-    net::time::PacketTime,
-    peer::PeerID,
-};
+use crate::{error::ENetError, net::time::PacketTime, peer::PeerID};
 
 #[derive(Debug, Clone)]
 pub struct Command {
@@ -26,7 +22,8 @@ pub struct CommandInfo {
     pub sent_time: Duration,
 }
 
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketFlags {
     pub reliable: bool,
     pub unsequenced: bool,
@@ -63,12 +60,14 @@ impl PacketFlags {
     }
 }
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProtocolHeader {
     pub peer_id: u16,   // peer id from outgoing peer id | HEADER FLAGS
     pub sent_time: u16, // first 16 bits of current time (ms) (dont be zero)
 }
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProtocolCommandHeader {
     pub command: u8,                   // Command | Command flags
@@ -77,7 +76,8 @@ pub struct ProtocolCommandHeader {
 }
 
 // Command types used for protocol
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum ProtocolCommand {
     None,
     Ack(AcknowledgeCommand),
@@ -96,13 +96,15 @@ pub enum ProtocolCommand {
 }
 
 // Different command types
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct AcknowledgeCommand {
     pub received_reliable_sequence_number: u16, // Current number (no inc)
     pub received_sent_time: PacketTime,         // Ack sent time
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ConnectCommand {
     pub outgoing_peer_id: u16,
     pub incoming_session_id: u8,
@@ -119,7 +121,8 @@ pub struct ConnectCommand {
     pub data: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct VerifyConnectCommand {
     pub outgoing_peer_id: u16,
     pub incoming_session_id: u8,
@@ -135,48 +138,56 @@ pub struct VerifyConnectCommand {
     pub connect_id: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BandwidthLimitCommand {
     pub incoming_bandwidth: u32,
     pub outgoing_bandwidth: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ThrottleConfigureCommand {
     pub packet_throttle_interval: u32,
     pub packet_throttle_acceleration: u32,
     pub packet_throttle_deceleration: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct DisconnectCommand {
     pub data: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PingCommand {}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SendReliableCommand {
     // pub data_length: u16,
     pub data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SendUnreliableCommand {
     pub unreliable_sequence_number: u16, // Used for fragmenting
     // pub data_length: u16,
     pub data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SendUnsequencedCommand {
     pub unsequenced_group: u16,
     // pub data_length: u16,
     pub data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SendFragmentCommand {
     pub start_sequence_number: u16,
     pub data_length: u16,

@@ -45,6 +45,7 @@ dependencies = [
 name = "async-enet"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "async-trait",
  "bytes",
  "futures",

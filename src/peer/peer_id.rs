@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::error::ENetError;
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub struct PeerID(pub u16);
 
