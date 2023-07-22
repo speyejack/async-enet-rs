@@ -261,6 +261,7 @@ impl Host {
         let timed_out = self.resend_missing_packets().await?;
 
         for disc_peer in timed_out {
+            tracing::debug!("Disconnecting peer due to time out");
             self.disconnect_peer(disc_peer).await?;
         }
 
@@ -335,6 +336,7 @@ impl Host {
             }
             ProtocolCommand::VerifyConnect(_) => todo!(),
             ProtocolCommand::Disconnect(_) => {
+                tracing::debug!("Disconnecting peer due to external request");
                 self.disconnect_peer(command.info.peer_id).await?;
                 return Ok(HostPollEvent::Disconnect(command.info.peer_id));
             }
