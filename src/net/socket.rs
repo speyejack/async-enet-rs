@@ -152,7 +152,26 @@ impl ENetSocket {
             size: 0,
         };
 
-        let command = match p.command {
+        let flags = &p.info.flags;
+        let id_flags: u16 = p.info.session_id;
+        let id_flags = id_flags << 12
+            | if flags.send_time { 1 << 15 } else { 0 }
+            | if flags.is_compressed { 1 << 14 } else { 0 };
+
+        let peer_id: u16 = p.info.peer_id.into();
+        let peer_id = peer_id | id_flags;
+
+        peer_id.serialize(&mut ser)?;
+
+        if flags.send_time {
+            let sent_time = PacketTime::from_duration(&p.info.sent_time);
+            sent_time.serialize(&mut ser)?;
+        }
+
+        let command_flags =
+            if flags.reliable { 1 << 7 } else { 0 } | if flags.unsequenced { 1 << 6 } else { 0 };
+
+        let cmd_type = match p.command {
             ProtocolCommand::None => 0,
             ProtocolCommand::Ack(_) => 1,
             ProtocolCommand::Connect(_) => 2,
@@ -169,19 +188,7 @@ impl ENetSocket {
             ProtocolCommand::Count => 13,
         };
 
-        let flags = &p.info.flags;
-        let id_flags: u16 = p.info.session_id;
-        let id_flags = id_flags << 12
-            | if flags.send_time { 1 << 15 } else { 0 }
-            | if flags.is_compressed { 1 << 14 } else { 0 };
-
-        let peer_id: u16 = p.info.peer_id.into();
-        let peer_id = peer_id | id_flags;
-
-        let command_flags =
-            if flags.reliable { 1 << 7 } else { 0 } | if flags.unsequenced { 1 << 6 } else { 0 };
-
-        let command = command | command_flags;
+        let command = cmd_type | command_flags;
 
         let command_header = ProtocolCommandHeader {
             command,
@@ -189,13 +196,6 @@ impl ENetSocket {
             reliable_sequence_number: p.info.reliable_sequence_number,
         };
 
-        let sent_time = PacketTime::from_duration(&p.info.sent_time);
-        let packet_header = ProtocolHeader {
-            peer_id,
-            sent_time: sent_time.into(),
-        };
-
-        packet_header.serialize(&mut ser)?;
         command_header.serialize(&mut ser)?;
 
         match &p.command {
