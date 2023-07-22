@@ -185,6 +185,7 @@ impl<'de, 'a, B: Buf> Deserializer<'de> for &'a mut EnetDeserializer<B> {
         V: serde::de::Visitor<'de>,
     {
         let len: usize = self.input.get_u16().into();
+        self.consumed += 2;
         if self.input.remaining() < len {
             return Err(EncodingError::NotEnoughData(self.input.remaining(), len));
         }
