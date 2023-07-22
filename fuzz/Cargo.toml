@@ -29,13 +29,13 @@ members = ["."]
 debug = 1
 
 [[bin]]
-name = "fuzz_target_1"
-path = "fuzz_targets/fuzz_target_1.rs"
+name = "orig_cli_rewrite_serv"
+path = "fuzz_targets/orig_cli_rewrite_serv.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "orig_cli_rewrite_serv"
-path = "fuzz_targets/orig_cli_rewrite_serv.rs"
+name = "packet_serial"
+path = "fuzz_targets/packet_serial.rs"
 test = false
 doc = false
