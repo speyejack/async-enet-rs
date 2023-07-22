@@ -91,7 +91,7 @@ pub enum ProtocolCommand {
     SendUnsequenced(SendUnsequencedCommand),
     BandwidthLimit(BandwidthLimitCommand),
     ThrottleConfigure(ThrottleConfigureCommand),
-    SendUnreliableFragment(SendFragmentCommand),
+    SendUnreliableFragment(SendUnreliableFragmentCommand),
     Count,
 }
 
@@ -198,6 +198,18 @@ pub struct SendFragmentCommand {
     pub data: Vec<u8>,
 }
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct SendUnreliableFragmentCommand {
+    pub start_sequence_number: u16,
+    pub data_length: u16,
+    pub fragment_count: u32,
+    pub fragment_number: u32,
+    pub total_length: u32,
+    pub fragment_offset: u32,
+    pub data: Vec<u8>,
+}
+
 macro_rules! impl_packet_conv {
     ($p: ty, $wrap: path) => {
         impl From<$p> for ProtocolCommand {
@@ -222,11 +234,15 @@ macro_rules! impl_packet_conv {
 impl_packet_conv!(AcknowledgeCommand, ProtocolCommand::Ack);
 impl_packet_conv!(ConnectCommand, ProtocolCommand::Connect);
 impl_packet_conv!(VerifyConnectCommand, ProtocolCommand::VerifyConnect);
-impl_packet_conv!(BandwidthLimitCommand, ProtocolCommand::BandwidthLimit);
-impl_packet_conv!(ThrottleConfigureCommand, ProtocolCommand::ThrottleConfigure);
 impl_packet_conv!(DisconnectCommand, ProtocolCommand::Disconnect);
 impl_packet_conv!(PingCommand, ProtocolCommand::Ping);
 impl_packet_conv!(SendReliableCommand, ProtocolCommand::SendReliable);
 impl_packet_conv!(SendUnreliableCommand, ProtocolCommand::SendUnreliable);
+impl_packet_conv!(SendFragmentCommand, ProtocolCommand::SendFragment);
 impl_packet_conv!(SendUnsequencedCommand, ProtocolCommand::SendUnsequenced);
-impl_packet_conv!(SendFragmentCommand, ProtocolCommand::SendUnreliableFragment);
+impl_packet_conv!(BandwidthLimitCommand, ProtocolCommand::BandwidthLimit);
+impl_packet_conv!(ThrottleConfigureCommand, ProtocolCommand::ThrottleConfigure);
+impl_packet_conv!(
+    SendUnreliableFragmentCommand,
+    ProtocolCommand::SendUnreliableFragment
+);

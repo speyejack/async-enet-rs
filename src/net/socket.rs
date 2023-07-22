@@ -11,7 +11,8 @@ use crate::{
         AcknowledgeCommand, BandwidthLimitCommand, Command, CommandInfo, ConnectCommand,
         DisconnectCommand, PacketFlags, PingCommand, ProtocolCommand, ProtocolCommandHeader,
         ProtocolHeader, SendFragmentCommand, SendReliableCommand, SendUnreliableCommand,
-        SendUnsequencedCommand, ThrottleConfigureCommand, VerifyConnectCommand,
+        SendUnreliableFragmentCommand, SendUnsequencedCommand, ThrottleConfigureCommand,
+        VerifyConnectCommand,
     },
 };
 
@@ -106,9 +107,9 @@ impl ENetSocket {
                 9 => SendUnsequencedCommand::deserialize(&mut deser)?.into(),
                 10 => BandwidthLimitCommand::deserialize(&mut deser)?.into(),
                 11 => ThrottleConfigureCommand::deserialize(&mut deser)?.into(),
-                12 => ProtocolCommand::SendUnreliableFragment(SendFragmentCommand::deserialize(
-                    &mut deser,
-                )?),
+                12 => ProtocolCommand::SendUnreliableFragment(
+                    SendUnreliableFragmentCommand::deserialize(&mut deser)?,
+                ),
                 13 => ProtocolCommand::Count,
                 _ => return Err(ENetError::Other("Invalid packet header".to_string())),
             };
