@@ -314,8 +314,26 @@ impl Host {
     }
 
     async fn handle_outgoing_command(&mut self, event: HostRecvEvent) -> Result<HostPollEvent> {
-        let command = event.to_command(self).await?;
-        self.send(command).await?;
+        match &event.event {
+            crate::peer::PeerSendEvent::Broadcast(_) => {
+                let peers = self
+                    .peers
+                    .keys()
+                    .filter(|x| **x != event.peer_id)
+                    .copied()
+                    .collect::<Vec<_>>();
+                for peer in peers {
+                    let mut event = event.clone();
+                    event.peer_id = peer;
+                    let command = event.to_command(self).await?;
+                    self.send(command).await?;
+                }
+            }
+            _ => {
+                let command = event.to_command(self).await?;
+                self.send(command).await?;
+            }
+        }
         Ok(HostPollEvent::NoEvent)
     }
 
