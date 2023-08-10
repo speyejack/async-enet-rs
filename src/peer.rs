@@ -109,6 +109,89 @@ impl Peer {
     pub fn get_address(&self) -> SocketAddr {
         self.address
     }
+
+    pub fn split(self) -> (PeerReader, PeerWriter) {
+        let reader = PeerReader {
+            id: self.id,
+            address: self.address,
+            in_channel: self.in_channel,
+        };
+
+        let writer = PeerWriter {
+            id: self.id,
+            address: self.address,
+            out_channel: self.out_channel,
+        };
+        (reader, writer)
+    }
+}
+
+#[derive(Debug)]
+pub struct PeerReader {
+    pub(crate) id: PeerID,
+    pub(crate) address: SocketAddr,
+
+    pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PeerWriter {
+    pub(crate) id: PeerID,
+    pub(crate) address: SocketAddr,
+
+    pub(crate) out_channel: tokio::sync::mpsc::Sender<HostRecvEvent>,
+}
+
+impl PeerReader {
+    pub async fn poll(&mut self) -> PeerRecvEvent {
+        let event = self.in_channel.recv().await;
+        match event {
+            None => PeerRecvEvent::Disconnect,
+            Some(e) => e.event,
+        }
+    }
+    pub fn get_address(&self) -> SocketAddr {
+        self.address
+    }
+}
+
+impl PeerWriter {
+    pub async fn send(&mut self, p: Packet) -> std::result::Result<(), ChannelError> {
+        self.out_channel
+            .send(HostRecvEvent {
+                channel_id: p.channel,
+                event: PeerSendEvent::Send(p),
+                peer_id: self.id,
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn broadcast(&mut self, p: Packet) -> std::result::Result<(), ChannelError> {
+        self.out_channel
+            .send(HostRecvEvent {
+                channel_id: p.channel,
+                event: PeerSendEvent::Broadcast(p),
+                peer_id: self.id,
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn disconnect(self) {
+        let _result = self
+            .out_channel
+            .send(HostRecvEvent {
+                event: PeerSendEvent::Disconnect,
+                peer_id: self.id,
+                channel_id: 0xFF,
+            })
+            .await;
+    }
+
+    pub fn get_address(&self) -> SocketAddr {
+        self.address
+    }
 }
 
 impl PeerInfo {
