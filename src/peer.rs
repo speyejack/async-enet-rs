@@ -47,13 +47,21 @@ pub struct PeerInfo {
     pub(crate) round_trip_time_variance: Duration,
 }
 
-#[derive(Debug)]
 pub struct Peer {
     pub(crate) id: PeerID,
     pub(crate) address: SocketAddr,
 
     pub(crate) out_channel: tokio::sync::mpsc::Sender<HostRecvEvent>,
     pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
+}
+
+impl std::fmt::Debug for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Peer")
+            .field("id", &self.id)
+            .field("address", &self.address)
+            .finish()
+    }
 }
 
 impl Peer {
