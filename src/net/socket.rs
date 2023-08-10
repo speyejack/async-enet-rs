@@ -27,7 +27,7 @@ pub trait Socket {
 #[derive(Debug)]
 pub struct ENetSocket {
     pub socket: UdpSocket,
-    buf: [u8; 100],
+    buf: [u8; 1024],
     incoming_queue: VecDeque<Command>,
 }
 
@@ -61,7 +61,7 @@ impl ENetSocket {
     pub fn new(socket: UdpSocket) -> Self {
         ENetSocket {
             socket,
-            buf: [0; 100],
+            buf: [0; 1024],
             incoming_queue: Default::default(),
         }
     }
@@ -146,7 +146,7 @@ impl ENetSocket {
     }
 
     fn serialize_command(&self, p: &Command) -> Result<(Bytes, usize)> {
-        let mut buff = BytesMut::zeroed(100);
+        let mut buff = BytesMut::zeroed(1024);
         let mut ser = EnetSerializer {
             output: &mut buff[..],
             size: 0,
