@@ -3,7 +3,7 @@ use serde::Deserializer;
 
 use crate::error::EncodingError;
 
-pub(crate) struct EnetDeserializer<B: Buf> {
+pub struct EnetDeserializer<B: Buf> {
     pub input: B,
     pub consumed: usize,
 }
