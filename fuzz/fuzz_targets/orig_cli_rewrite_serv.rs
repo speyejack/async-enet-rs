@@ -71,7 +71,7 @@ async fn server_cli_packets(packets: Vec<Data>) -> Result<(), anyhow::Error> {
     let serv_peer = serv_host.poll_for_event(dur).await?;
     let mut serv_peer = match serv_peer {
         HostPollEvent::Connect(p) => p,
-        _ => panic!("Unexpected result"),
+        e => panic!("Unexpected result {e:?}"),
     };
 
     tracing::info!("Cli polling");

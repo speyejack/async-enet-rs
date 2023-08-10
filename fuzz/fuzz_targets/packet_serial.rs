@@ -1,19 +1,12 @@
 #![no_main]
 
-use anyhow::{bail, Context};
 use enet::{
-    host::{config::HostConfig, hostevents::HostPollEvent, Host},
     net::socket::{ENetSocket, Socket},
-    peer::{Packet, PeerRecvEvent},
     protocol::{Command, CommandInfo, PacketFlags, ProtocolCommand},
 };
 use libfuzzer_sys::fuzz_target;
-use std::{
-    net::{Ipv4Addr, SocketAddr},
-    ops::Not,
-    time::Duration,
-};
-use tokio::{net::UdpSocket, select};
+use std::{ops::Not, time::Duration};
+use tokio::net::UdpSocket;
 
 #[derive(Debug, PartialEq, Eq, Clone, arbitrary::Arbitrary)]
 enum Data {
@@ -49,7 +42,7 @@ fn assert_cmd_eq(a: &Command, b: &Command) {
 
 async fn round_trip(packets: Vec<Data>) -> Result<(), anyhow::Error> {
     // #[cfg(fuzzing)]
-    // tracing_subscriber::fmt::try_init();
+    // let _ = tracing_subscriber::fmt::try_init();
     let mut cli_sock = ENetSocket::new(UdpSocket::bind("127.0.0.1:9001").await?);
     let mut serv_sock = ENetSocket::new(UdpSocket::bind("127.0.0.1:9002").await?);
 
@@ -65,6 +58,7 @@ async fn round_trip(packets: Vec<Data>) -> Result<(), anyhow::Error> {
     };
 
     for command in packets {
+        tracing::trace!("Sending {command:?}");
         match command {
             Data::Cli(c) => {
                 let mut info = common_info.clone();
@@ -74,8 +68,8 @@ async fn round_trip(packets: Vec<Data>) -> Result<(), anyhow::Error> {
                 cli_sock.send(&cmd).await?;
 
                 tokio::select! {
-                    _ = cli_sock.recv() => {
-                        panic!("Client got unexpected packet");
+                    p = cli_sock.recv() => {
+                        panic!("Client got unexpected packet {p:?}");
                     }
                     p = serv_sock.recv() => {
                         assert_cmd_eq(&cmd, &p?);
@@ -90,8 +84,8 @@ async fn round_trip(packets: Vec<Data>) -> Result<(), anyhow::Error> {
                 serv_sock.send(&cmd).await?;
 
                 tokio::select! {
-                    _ = serv_sock.recv() => {
-                        panic!("Server got unexpected packet");
+                    p = serv_sock.recv() => {
+                        panic!("Server got unexpected packet {p:?}");
                     }
                     p = cli_sock.recv() => {
                         assert_cmd_eq(&cmd, &p?);

@@ -27,8 +27,8 @@ arbitrary = {version = "1", features=["derive"], optional=true}
 
 
 [dev-dependencies]
-quickcheck = "1"
 orig-enet = {version = "0.3", package = "enet"}
 anyhow = "1"
 quickcheck_async = "0.1.1"
+quickcheck = "1"
 once_cell = "1.18.0"
