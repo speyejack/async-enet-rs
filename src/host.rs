@@ -430,8 +430,8 @@ impl Host {
                     next_seq
                 );
 
-                // TODO Remove this as an error, and make just a small warning
-                return Err(ENetError::InvalidPacket());
+                // TODO Handle the invalid seq numbers similar to original enet windowing
+                return Ok(());
             }
 
             // TODO Determine if peer seq num can be merged
