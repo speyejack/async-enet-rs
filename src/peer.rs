@@ -112,7 +112,7 @@ impl Peer {
 
     pub fn split(self) -> (PeerReader, PeerWriter) {
         let reader = PeerReader {
-            id: self.id,
+            _id: self.id,
             address: self.address,
             in_channel: self.in_channel,
         };
@@ -128,7 +128,7 @@ impl Peer {
 
 #[derive(Debug)]
 pub struct PeerReader {
-    pub(crate) id: PeerID,
+    pub(crate) _id: PeerID,
     pub(crate) address: SocketAddr,
 
     pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
