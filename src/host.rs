@@ -223,7 +223,7 @@ impl Host {
 
         peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
 
-        peer.round_trip_time += diff / 8;
+        peer.round_trip_time = peer.round_trip_time.saturating_add(diff / 8);
         peer.round_trip_time_variance += diff / 4;
         Ok(())
     }
