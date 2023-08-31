@@ -33,6 +33,7 @@ use crate::{
     },
 };
 
+/// The host that manages the packets from the socket to the clients
 pub struct Host<S: Socket = ENetSocket> {
     pub socket: S,
     pub peers: HashMap<PeerID, PeerInfo>,
@@ -52,11 +53,16 @@ pub struct Host<S: Socket = ENetSocket> {
     pub bound_socket_addr: SocketAddr,
 }
 
+/// An unacknowledged packet
 #[derive(Debug, Clone)]
 struct UnAckPacket {
+    /// The original command that was sent
     command: Command,
+    /// Duration time sent
     last_sent: Duration,
+    /// How many retries the packet attempted
     retries: usize,
+    /// The peer the command was being sent to
     peer_id: PeerID,
 }
 

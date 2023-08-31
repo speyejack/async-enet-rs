@@ -15,6 +15,7 @@ use super::{
     protocol::PacketFlags,
 };
 
+/// Represents information used to track the peer
 #[derive(Debug)]
 pub struct PeerInfo {
     pub(crate) outgoing_peer_id: OutgoingPeerID,
@@ -47,6 +48,7 @@ pub struct PeerInfo {
     pub(crate) round_trip_time_variance: Duration,
 }
 
+/// A presentation of a peer
 pub struct Peer {
     pub(crate) id: PeerID,
     pub(crate) address: SocketAddr,
@@ -126,6 +128,7 @@ impl Peer {
     }
 }
 
+/// The reader half of a peer
 #[derive(Debug)]
 pub struct PeerReader {
     pub(crate) _id: PeerID,
@@ -134,6 +137,7 @@ pub struct PeerReader {
     pub(crate) in_channel: tokio::sync::mpsc::Receiver<HostSendEvent>,
 }
 
+/// The writer half of a peer
 #[derive(Debug, Clone)]
 pub struct PeerWriter {
     pub(crate) id: PeerID,
@@ -212,6 +216,7 @@ impl PeerInfo {
     }
 }
 
+/// A packet to send to a peer
 #[derive(Debug, Clone)]
 pub struct Packet {
     pub data: Vec<u8>,
@@ -219,6 +224,7 @@ pub struct Packet {
     pub flags: PacketFlags,
 }
 
+/// An event a peer sends to the host
 #[derive(Debug, Clone)]
 pub enum PeerSendEvent {
     Send(Packet),
@@ -227,6 +233,7 @@ pub enum PeerSendEvent {
     Disconnect,
 }
 
+/// An event a peer receives to the host
 #[derive(Debug)]
 pub enum PeerRecvEvent {
     Recv(Packet),

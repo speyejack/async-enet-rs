@@ -12,6 +12,7 @@ use crate::{
 
 pub type Result<T> = std::result::Result<T, ENetError>;
 
+/// An error coming from the internal communication channels
 #[derive(Error, Debug)]
 pub enum ChannelError {
     #[error("Client send error")]
@@ -24,6 +25,7 @@ pub enum ChannelError {
     PeerClosed,
 }
 
+/// An error for Enet
 #[derive(Error, Debug)]
 pub enum ENetError {
     #[error("Socket error: {0}")]
@@ -63,6 +65,7 @@ impl From<ChannelError> for ENetError {
     }
 }
 
+/// An error that happens during encoding
 #[derive(Error, Debug)]
 pub enum EncodingError {
     #[error("Not enough data, {0} < {0}")]
